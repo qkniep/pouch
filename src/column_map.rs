@@ -337,7 +337,6 @@ where
 // last-wins / strict-build distinction run here.
 #[cfg(all(test, feature = "alloc"))]
 mod alloc_tests {
-    use alloc::vec;
     use alloc::vec::Vec;
 
     use crate::error::BuildError;
@@ -458,14 +457,15 @@ mod alloc_tests {
     #[test]
     #[should_panic(expected = "equal length")]
     fn from_store_rejects_unequal_columns() {
-        let _ = ColumnMap::<Vec<i32>, Vec<&str>>::from_store(vec![1, 2], vec!["a"]);
+        let _ = ColumnMap::<Vec<i32>, Vec<&str>>::from_store(Vec::from([1, 2]), Vec::from(["a"]));
     }
 
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "free of duplicates")]
     fn from_store_rejects_duplicate_keys() {
-        let _ = ColumnMap::<Vec<i32>, Vec<&str>>::from_store(vec![1, 1], vec!["a", "z"]);
+        let _ =
+            ColumnMap::<Vec<i32>, Vec<&str>>::from_store(Vec::from([1, 1]), Vec::from(["a", "z"]));
     }
 }
 
