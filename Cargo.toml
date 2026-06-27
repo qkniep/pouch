@@ -46,7 +46,7 @@ heapless = ["dep:heapless"]
 smallvec = { version = "1", default-features = false, features = ["const_generics"], optional = true }
 tinyvec  = { version = "1", default-features = false, features = ["alloc"], optional = true }
 arrayvec = { version = "0.7", default-features = false, optional = true }
-heapless = { version = "0.8", default-features = false, optional = true }
+heapless = { version = "0.9", default-features = false, optional = true }
 
 # Benchmarks only. `divan` is the harness; the rest are comparison targets.
 # Growable: `litemap` (flat sorted-Vec map, the same shape as `SortedMap`),
