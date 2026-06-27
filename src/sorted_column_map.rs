@@ -126,14 +126,7 @@ where
         );
         SortedColumnMap { keys, values }
     }
-}
 
-impl<K, V, SK, SV> SortedColumnMap<SK, SV>
-where
-    SK: StoreMut<Elem = K>,
-    SV: StoreMut<Elem = V>,
-    K: Ord,
-{
     /// Binary search the dense key column. `Ok(i)` is the index of the matching
     /// entry; `Err(i)` is the insertion point that keeps the column sorted.
     /// Every key lookup — `get`, `contains_key`, `try_insert`, `remove`,
@@ -151,6 +144,22 @@ where
         self.search(key).ok().map(|i| &self.values.as_slice()[i])
     }
 
+    /// Whether `key` is present. `O(log n)`. Unlike
+    /// [`ColumnMap`](crate::ColumnMap), which scans its key column with a
+    /// vectorizable boolean `contains`, the sorted layout shares the `O(log
+    /// n)` binary search with [`get`](Self::get): a linear scan would
+    /// forfeit the very `O(log n)` the ordering buys.
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.search(key).is_ok()
+    }
+}
+
+impl<K, V, SK, SV> SortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K>,
+    SV: StoreMut<Elem = V>,
+    K: Ord,
+{
     /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
     /// update without the [`entry`](Self::entry) ceremony. `O(log n)`. No E0311
     /// lifetime dance (unlike [`SortedMap::get_mut`](crate::SortedMap::get_mut)):
@@ -159,15 +168,6 @@ where
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         let i = self.search(key).ok()?;
         Some(&mut self.values.as_mut_slice()[i])
-    }
-
-    /// Whether `key` is present. `O(log n)`. Unlike
-    /// [`ColumnMap`](crate::ColumnMap), which scans its key column with a
-    /// vectorizable boolean `contains`, the sorted layout shares the `O(log
-    /// n)` binary search with [`get`](Self::get): a linear scan would
-    /// forfeit the very `O(log n)` the ordering buys.
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.search(key).is_ok()
     }
 
     /// Insert a brand-new entry at index `i` in both columns, keeping them

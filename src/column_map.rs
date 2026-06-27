@@ -177,14 +177,7 @@ where
         );
         ColumnMap { keys, values }
     }
-}
 
-impl<K, V, SK, SV> ColumnMap<SK, SV>
-where
-    SK: StoreMut<Elem = K>,
-    SV: StoreMut<Elem = V>,
-    K: Eq,
-{
     /// Index of the entry whose key equals `key`, or `None`. Every key lookup —
     /// `get`, `try_insert`, `remove`, `try_from_iter` — routes through this
     /// single dense `[K]` scan, so they can never disagree on which entry
@@ -203,15 +196,6 @@ where
         self.position(key).map(|i| &self.values.as_slice()[i])
     }
 
-    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
-    /// update without the [`entry`](Self::entry) ceremony. No E0311 lifetime dance
-    /// (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value
-    /// column is already `&mut [V]`, so elision ties the result to `&mut self`.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        let i = self.position(key)?;
-        Some(&mut self.values.as_mut_slice()[i])
-    }
-
     /// Whether `key` is present. `O(n)`, but unlike [`get`](Self::get) it needs
     /// only a yes/no answer — so it leans on the slice's boolean
     /// `contains`, an OR-reduction the standard library already
@@ -225,6 +209,22 @@ where
     /// scan, forfeiting the folded path.)
     pub fn contains_key(&self, key: &K) -> bool {
         self.keys.as_slice().contains(key)
+    }
+}
+
+impl<K, V, SK, SV> ColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K>,
+    SV: StoreMut<Elem = V>,
+    K: Eq,
+{
+    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
+    /// update without the [`entry`](Self::entry) ceremony. No E0311 lifetime dance
+    /// (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value
+    /// column is already `&mut [V]`, so elision ties the result to `&mut self`.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = self.position(key)?;
+        Some(&mut self.values.as_mut_slice()[i])
     }
 
     /// Append a brand-new entry to both columns, or hand it back at capacity.

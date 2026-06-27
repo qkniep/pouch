@@ -10,6 +10,10 @@
 //! `rotate_right(1)`/`rotate_left(1)` fallback for a hypothetical store that
 //! exposes only `push`/`pop`; copy whichever fits when adding a backend.
 
+// The read-only `&[T]` backend needs no dependency and no `alloc`, so it alone
+// is ungated — available in every build, including `--no-default-features`.
+mod slice;
+
 #[cfg(feature = "alloc")]
 mod vec;
 

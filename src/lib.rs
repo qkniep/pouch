@@ -2,7 +2,9 @@
 //!
 //! A `pouch` is a small container that holds whatever you put in it regardless of
 //! the backing store: `Vec`, `SmallVec`, `TinyVec`, `ArrayVec`, or `heapless::Vec`,
-//! optionally bounded by a runtime cap. `no_std`-first.
+//! optionally bounded by a runtime cap. A borrowed `&[T]` (or `&[T; N]`) is also a
+//! (read-only) backend — wrap a `static` sorted table for zero-alloc lookups
+//! straight out of flash (see [`SliceSet`] / [`SliceMap`]). `no_std`-first.
 //!
 //! Three orthogonal axes are separated deliberately, one per module:
 //!   * **storage**   — where elements live (heap / inline / hybrid): the [`Store`] trait
@@ -109,6 +111,18 @@ pub type ArraySet<T, const N: usize> = SortedSet<ArrayVec<T, N>>;
 
 #[cfg(feature = "heapless")]
 pub type HeaplessSet<T, const N: usize> = SortedSet<heapless::Vec<T, N>>;
+
+/// A **read-only** sorted set over a borrowed slice — no dependency, no `alloc`,
+/// so it works in any build. Wrap an already-sorted, duplicate-free slice (e.g. a
+/// `static` table living in flash) via [`SortedSet::from_store`] for zero-alloc
+/// `contains` with no copy: `SliceSet::from_store(&TABLE[..])`. It exposes only
+/// the read API ([`Store`], not [`StoreMut`]).
+pub type SliceSet<'a, T> = SortedSet<&'a [T]>;
+/// A **read-only** sorted map over a borrowed `&[(K, V)]` slice — the [`SliceSet`]
+/// story for key/value pairs. Wrap a `static` sorted-by-key table via
+/// [`SortedMap::from_store`] for zero-alloc `get`/`contains_key` straight out of
+/// flash: `SliceMap::from_store(&TABLE[..])`.
+pub type SliceMap<'a, K, V> = SortedMap<&'a [(K, V)]>;
 
 #[cfg(feature = "alloc")]
 pub type UnsortedVecSet<T> = UnsortedSet<Vec<T>>;
