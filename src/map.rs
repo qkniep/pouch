@@ -46,6 +46,14 @@ impl<S: Store> SortedMap<S> {
     }
 }
 
+impl<S: StoreMut> SortedMap<S> {
+    /// Remove every entry, keeping the backing store's allocated capacity. Needs
+    /// no `Ord` bound — it only truncates the store.
+    pub fn clear(&mut self) {
+        self.store.clear();
+    }
+}
+
 impl<K, V, S> SortedMap<S>
 where
     S: Store<Elem = (K, V)>,
@@ -85,6 +93,22 @@ where
         s.binary_search_by(|(k, _)| k.cmp(key))
             .ok()
             .map(|i| &s[i].1)
+    }
+
+    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
+    /// update without the [`entry`](Self::entry) ceremony. Carries the same
+    /// explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311 quirk).
+    pub fn get_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        let i = self
+            .store
+            .as_slice()
+            .binary_search_by(|(k, _)| k.cmp(key))
+            .ok()?;
+        Some(&mut self.store.as_mut_slice()[i].1)
     }
 
     /// Whether `key` is present. `O(log n)` — like [`get`](Self::get) but yields a
@@ -278,6 +302,14 @@ impl<S: Store> UnsortedMap<S> {
     }
 }
 
+impl<S: StoreMut> UnsortedMap<S> {
+    /// Remove every entry, keeping the backing store's allocated capacity. Needs
+    /// no `Eq` bound — it only truncates the store.
+    pub fn clear(&mut self) {
+        self.store.clear();
+    }
+}
+
 impl<K, V, S> UnsortedMap<S>
 where
     S: Store<Elem = (K, V)>,
@@ -319,6 +351,19 @@ where
         V: 'a,
     {
         self.position(key).map(|i| &self.store.as_slice()[i].1)
+    }
+
+    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
+    /// update without the [`entry`](Self::entry) ceremony. Routes through the same
+    /// internal linear scan as [`get`](Self::get); carries the same explicit
+    /// `K/V: 'a` bounds (the E0311 quirk).
+    pub fn get_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        let i = self.position(key)?;
+        Some(&mut self.store.as_mut_slice()[i].1)
     }
 
     /// Whether `key` is present. `O(n)` — routes through the same internal linear
@@ -618,6 +663,38 @@ mod alloc_tests {
         // A vacant entry appends.
         *m.entry(9).or_insert("z") = "Z";
         assert_eq!(m.get(&9), Some(&"Z"));
+    }
+
+    #[test]
+    fn get_mut_updates_in_place() {
+        let mut sm: SortedMap<Vec<(i32, i32)>> =
+            SortedMap::try_from_iter([(1, 10), (2, 20)]).unwrap();
+        *sm.get_mut(&1).unwrap() += 5;
+        assert_eq!(sm.get(&1), Some(&15));
+        assert_eq!(sm.get_mut(&9), None);
+
+        let mut um: UnsortedMap<Vec<(i32, i32)>> = UnsortedMap::new();
+        um.try_insert(1, 10).unwrap();
+        *um.get_mut(&1).unwrap() = 99;
+        assert_eq!(um.get(&1), Some(&99));
+        assert_eq!(um.get_mut(&9), None);
+    }
+
+    #[test]
+    fn clear_empties_both_map_flavors() {
+        let mut sm: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (2, "b")]).unwrap();
+        sm.clear();
+        assert!(sm.is_empty());
+        assert_eq!(sm.get(&1), None);
+        assert_eq!(sm.try_insert(3, "c"), Ok(None)); // usable again
+        assert_eq!(sm.as_slice(), &[(3, "c")]);
+
+        let mut um: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
+        um.try_insert(1, "a").unwrap();
+        um.clear();
+        assert!(um.is_empty());
+        assert_eq!(um.get(&1), None);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.
