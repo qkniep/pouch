@@ -1,0 +1,52 @@
+# Standalone helper crate (NOT a workspace member of the root package, NOT
+# published) that measures pouch's marginal binary size for an embedded target.
+# Driven by `size/measure.sh` / `just size`. The empty `[workspace]` table makes
+# this its own workspace root so root-level cargo commands never pick it up.
+[workspace]
+
+[package]
+name = "pouch-size"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+# Staticlib so fat LTO keeps exactly the code reachable from the `extern "C"`
+# roots below; we then diff its symbols against a bare baseline.
+crate-type = ["staticlib"]
+
+[dependencies]
+pouch = { path = "..", default-features = false, features = ["heapless", "arrayvec"] }
+heapless = { version = "0.8", default-features = false }
+
+[features]
+default = []
+# one root group per family — selected by measure.sh to get its marginal cost
+sorted_set = []
+unsorted_set = []
+sorted_map = []
+unsorted_map = []
+column_map = []
+sorted_column_map = []
+all = ["sorted_set", "unsorted_set", "sorted_map", "unsorted_map", "column_map", "sorted_column_map"]
+# entry-API roots — measured on top of the matching family (`<fam>,<fam>_entry`)
+# to get the marginal cost the entry surface adds over insert/get/remove
+sorted_map_entry = []
+unsorted_map_entry = []
+column_map_entry = []
+sorted_column_map_entry = []
+# alternatives, for context (the BENCHMARKS.md "for context" line)
+arrayvec_set = []   # SortedSet on arrayvec instead of heapless
+cmp_handrolled = [] # raw heapless::Vec sorted set, by hand
+cmp_linear = []     # heapless::LinearMap
+cmp_fnv = []        # heapless::FnvIndexMap
+
+# Embedded defaults: size-optimized, fat LTO, abort on panic (no unwinder).
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+debug = false
+strip = false

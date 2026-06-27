@@ -1,0 +1,8 @@
+/target
+/size/target
+/size/nm
+*.swp
+*.swo
+*~
+.DS_Store
+.env

@@ -1,0 +1,47 @@
+name: feature-powerset
+
+# Type-checks every combination of Cargo features with cargo-hack, across all
+# targets (lib, bins, tests, benches), catching code that only compiles under the
+# --all-features set the core suite uses. Mirrors `just hack`. Only earns its CI
+# minutes once Cargo.toml has two or more optional features — with none, the
+# powerset is a single combination already covered by the core suite (and
+# no-std.yml).
+#
+# --all-targets keeps dev-deps in the graph, so a missing `#[cfg(feature = "...")]`
+# gate can hide when a dev-dependency pulls the optional dep in anyway. For a
+# library where that matters, swap `--all-targets` for `--no-dev-deps`, which
+# checks the public feature surface in isolation. It can't run under `--locked`
+# (cargo-hack edits the manifest, which a locked build forbids) but restores
+# Cargo.lock when done, so the working tree stays clean.
+# See: https://github.com/taiki-e/cargo-hack
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: feature-powerset-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powerset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: ./.github/actions/rust-setup
+        with:
+          # Type-checking only; rustfmt/clippy aren't needed here.
+          components: ""
+          tools: cargo-hack
+
+      # Identical to `just hack`: every feature combination must type-check. This
+      # crate's integration tests pull in several backend features at once, so the
+      # dev-dep-excluding `--no-dev-deps` checks the public surface in isolation
+      # (which is what catches a missing `#[cfg(feature = "...")]` gate anyway).
+      - name: Check feature powerset
+        run: cargo hack --feature-powerset --no-dev-deps check

@@ -1,0 +1,43 @@
+name: no_std
+
+# Checks that the crate builds without `std` on a bare-metal target.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: no-std-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-std:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: ./.github/actions/rust-setup
+        with:
+          # Build-only check on a bare-metal target; rustfmt/clippy aren't needed.
+          components: ""
+          targets: thumbv7em-none-eabihf
+
+      # Trait scaffolding only — no backend is enabled here, so this on its own
+      # doesn't exercise any backend's no_std-ness.
+      - name: Build core (no backends)
+        run: cargo build --no-default-features --target thumbv7em-none-eabihf --locked
+
+      # The actual point of this workflow: compile the backends on bare metal. A
+      # `std::` reach inside e.g. backend/heapless.rs builds fine on the std host
+      # (feature-powerset, rust.yml) but breaks here — this is the job that catches it.
+      - name: Build alloc-free backends (arrayvec, heapless)
+        run: cargo build --no-default-features --features arrayvec,heapless --target thumbv7em-none-eabihf --locked
+
+      # The alloc-but-no-std path for the growable inline backends: `alloc` is
+      # available on this target, but `std` is not.
+      - name: Build alloc backends without std (smallvec, tinyvec)
+        run: cargo build --no-default-features --features alloc,smallvec,tinyvec --target thumbv7em-none-eabihf --locked

@@ -1,0 +1,94 @@
+[package]
+name = "pouch"
+version = "0.0.0"
+authors = ["Quentin Kniep <hello@quentinkniep.com>"]
+edition = "2021"
+# 1.78 is where std's `slice::binary_search_by` gained the cmov-based branchless
+# bisection (1.75 still mispredicts the data-dependent branch every probe), which
+# the sorted collections' lookups ride on. Don't lower without re-benching.
+rust-version = "1.78"
+description = "Small, fast, backend-generic sets and maps for no_std (Vec, SmallVec, TinyVec, ArrayVec, heapless), with optional capacity bounds"
+repository = "https://github.com/qkniep/pouch"
+license = "MIT OR Apache-2.0"
+keywords = ["set", "map", "no-std", "collections", "embedded"]
+categories = ["data-structures", "no-std", "embedded"]
+# Benches are listed explicitly below; disabling auto-discovery keeps the shared
+# `benches/common.rs` helper module from being picked up as its own bench target.
+autobenches = false
+
+# Keep the published tarball lean with an allowlist: ship only the source and the
+# docs consumers see. Verify with `cargo package --list`. The LICENSE files must
+# be listed explicitly because `license` is an SPDX expression, not `license-file`.
+include = [
+    "src/**/*",
+    "README.md",
+    "BENCHMARKS.md",  # README links to it relatively; ship it so the link resolves
+    "CHANGELOG.md",
+    "LICENSE-*",
+]
+
+# Build docs the way docs.rs does: all features, with `--cfg docsrs` so that
+# feature-specific docs can be gated behind `#[cfg_attr(docsrs, doc(cfg(...)))]`.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "smallvec", "tinyvec", "arrayvec", "heapless"]
+std = ["alloc"]
+alloc = []
+smallvec = ["dep:smallvec", "alloc"]
+tinyvec = ["dep:tinyvec", "alloc"]
+arrayvec = ["dep:arrayvec"]
+heapless = ["dep:heapless"]
+
+[dependencies]
+smallvec = { version = "1", default-features = false, features = ["const_generics"], optional = true }
+tinyvec  = { version = "1", default-features = false, features = ["alloc"], optional = true }
+arrayvec = { version = "0.7", default-features = false, optional = true }
+heapless = { version = "0.8", default-features = false, optional = true }
+
+# Benchmarks only. `divan` is the harness; the rest are comparison targets.
+# Growable: `litemap` (flat sorted-Vec map, the same shape as `SortedMap`),
+# `vecmap-rs` (unsorted Vec map/set, the shape of the `Unsorted*` flavors),
+# `sorted-vec` (sorted-Vec set), `rustc-hash` (FxHash, a fair fast-hash baseline).
+# Fixed-cap / no_std: `micromap` and `heapless::LinearMap` (already a backend dep).
+[dev-dependencies]
+divan = "0.1"
+litemap = "0.8"
+vecmap-rs = "0.2"
+sorted-vec = "0.8"
+rustc-hash = "2"
+micromap = "0.3"
+# `thincollections` is the honest competitor for the nested-population bench: thin
+# collections designed to live inside another structure (the `population` bench).
+thincollections = "0.5"
+
+[[bench]]
+name = "map"
+harness = false
+
+[[bench]]
+name = "set"
+harness = false
+
+[[bench]]
+name = "backend"
+harness = false
+
+[[bench]]
+name = "population"
+harness = false
+
+[[bench]]
+name = "soa"
+harness = false
+
+[lints.rust]
+# The crate is unsafe-free; `forbid` keeps it that way (no opt-in `#[allow]`).
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
