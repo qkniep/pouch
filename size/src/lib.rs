@@ -7,6 +7,7 @@
 #![no_std]
 #![allow(improper_ctypes_definitions)] // we pass &mut Coll across `extern "C"` on purpose
 
+#[allow(unused_imports)] // unused only in the no-feature baseline build
 use core::hint::black_box;
 
 #[panic_handler]
