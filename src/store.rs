@@ -11,8 +11,12 @@ use crate::error::CapacityError;
 
 mod backend;
 mod capped;
+mod scratch;
+mod spill;
 
 pub use capped::Capped;
+pub use scratch::ScratchVec;
+pub use spill::Spill;
 
 /// Read access to a contiguous backing store of `Elem`.
 ///
