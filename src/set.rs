@@ -39,7 +39,7 @@ where
 }
 
 /// A set kept sorted in its backing store; lookup is `binary_search`.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SortedSet<S> {
     store: S,
 }
@@ -273,7 +273,11 @@ where
 /// swap-removes. The unsorted counterpart of [`SortedSet`] — prefer it when
 /// `Elem` isn't `Ord`, or when n is small enough that skipping the sorted
 /// insert's shift wins.
-#[derive(Debug)]
+// Derives `Clone` but not `PartialEq`/`Eq`: correct set equality is
+// order-independent, yet swap-remove lets two equal sets store their elements in
+// different orders, so a structural derive would wrongly call them unequal. The
+// sorted twin derives equality because its stored order is canonical.
+#[derive(Clone, Debug)]
 pub struct UnsortedSet<S> {
     store: S,
 }
@@ -524,6 +528,29 @@ mod alloc_tests {
         assert!(unsorted.is_empty());
         assert!(unsorted.insert(9));
         assert_eq!(unsorted.len(), 1);
+    }
+
+    #[test]
+    fn clone_and_eq_for_sorted_set() {
+        let a: SortedSet<Vec<i32>> = SortedSet::from_sorted_iter([1, 2, 3]);
+        let mut b = a.clone();
+        assert_eq!(a, b); // PartialEq: same contents
+        b.insert(4);
+        assert_ne!(a, b); // the clone is independent of the original
+        assert_eq!(a.as_slice(), &[1, 2, 3]);
+        // Built in a different order, still equal — the stored order is canonical.
+        let c: SortedSet<Vec<i32>> = [3, 1, 2, 1].into_iter().collect();
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn clone_for_unsorted_set_is_independent() {
+        // UnsortedSet derives Clone but not PartialEq (order-sensitive).
+        let mut a: UnsortedSet<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        let b = a.clone();
+        a.insert(4);
+        assert_eq!(b.len(), 3); // clone unaffected by the later insert
+        assert!(b.contains(&1) && b.contains(&2) && b.contains(&3));
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

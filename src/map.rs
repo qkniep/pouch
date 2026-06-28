@@ -12,7 +12,7 @@ mod entry;
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
 
 /// A map kept sorted by key in its backing store (`Elem = (K, V)`).
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SortedMap<S> {
     store: S,
 }
@@ -267,7 +267,11 @@ where
 /// A map with no key ordering (`Elem = (K, V)`): lookup is a linear scan, insert
 /// appends, delete swap-removes. The unsorted counterpart of [`SortedMap`];
 /// needs only `K: Eq`, not `K: Ord`.
-#[derive(Debug)]
+// Derives `Clone` but not `PartialEq`/`Eq`: correct map equality is
+// key-order-independent, yet swap-remove lets two equal maps store their entries
+// in different orders, so a structural derive would wrongly call them unequal.
+// The sorted twin derives equality because its stored order is canonical.
+#[derive(Clone, Debug)]
 pub struct UnsortedMap<S> {
     store: S,
 }
@@ -695,6 +699,36 @@ mod alloc_tests {
         um.clear();
         assert!(um.is_empty());
         assert_eq!(um.get(&1), None);
+    }
+
+    #[test]
+    fn clone_and_eq_for_sorted_map() {
+        let a: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (2, "b")]).unwrap();
+        let mut b = a.clone();
+        assert_eq!(a, b); // PartialEq compares keys *and* values
+        b.try_insert(3, "c").unwrap();
+        assert_ne!(a, b); // the clone is independent
+        assert_eq!(a.len(), 2);
+        // Different build order, same mapping -> equal (canonical key order).
+        let c: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(2, "b"), (1, "a")]).unwrap();
+        assert_eq!(a, c);
+        // A differing value breaks equality even with identical keys.
+        let d: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (2, "B")]).unwrap();
+        assert_ne!(a, d);
+    }
+
+    #[test]
+    fn clone_for_unsorted_map_is_independent() {
+        // UnsortedMap derives Clone but not PartialEq (order-sensitive).
+        let mut a: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
+        a.try_insert(1, "a").unwrap();
+        let b = a.clone();
+        a.try_insert(2, "b").unwrap();
+        assert_eq!(b.len(), 1); // clone unaffected
+        assert_eq!(b.get(&1), Some(&"a"));
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

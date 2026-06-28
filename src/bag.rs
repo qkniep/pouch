@@ -16,7 +16,11 @@ use crate::store::{append_all, push, Store, StoreMut, StoreNew, Unbounded};
 /// A sequence of values with duplicates allowed and no ordering or uniqueness
 /// invariant. The crate's lightest collection — `Vec`-like over any backend, with
 /// no bound on the element type.
-#[derive(Debug)]
+// Derives `Clone` but not `PartialEq`/`Eq`: a bag's multiset equality is
+// order-independent, yet `swap_remove` lets two equal bags store their elements in
+// different orders, so a structural derive would wrongly call them unequal — the
+// same reason the unsorted set/map twins withhold it.
+#[derive(Clone, Debug)]
 pub struct Bag<S> {
     store: S,
 }
@@ -232,6 +236,15 @@ mod alloc_tests {
         assert!(bag.is_empty());
         bag.push(7);
         assert_eq!(bag.as_slice(), &[7]);
+    }
+
+    #[test]
+    fn clone_is_independent() {
+        // Bag derives Clone but not PartialEq (order-sensitive multiset).
+        let mut a: Bag<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        let b = a.clone();
+        a.push(4);
+        assert_eq!(b.as_slice(), &[1, 2, 3]); // clone unaffected by the later push
     }
 }
 

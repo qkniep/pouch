@@ -7,7 +7,7 @@ use crate::error::CapacityError;
 /// (otherwise infallible) inserts into recoverable [`CapacityError`]s. This is
 /// the factoring that makes `max_capacity` orthogonal to storage: cap logic is
 /// written once here rather than per backend.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capped<S> {
     inner: S,
     cap: usize,

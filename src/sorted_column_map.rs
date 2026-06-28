@@ -45,7 +45,7 @@ use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 /// the `&[(K, V)]` view for a dense key column the binary search strides
 /// through without touching values (a win only for large values; see the module
 /// docs). Needs `K: Ord`.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SortedColumnMap<SK, SV> {
     keys: SK,
     values: SV,
@@ -514,6 +514,24 @@ mod alloc_tests {
         assert_eq!(m.values(), &[] as &[i32]);
         m.try_insert(3, 30).unwrap(); // both columns usable again
         assert_eq!(m.keys(), &[3]);
+    }
+
+    #[test]
+    fn clone_and_eq() {
+        let a: SortedColumnMap<Vec<i32>, Vec<&str>> =
+            SortedColumnMap::try_from_iter([(1, "a"), (2, "b")]).unwrap();
+        let mut b = a.clone();
+        assert_eq!(a, b); // PartialEq compares both columns
+        b.try_insert(3, "c").unwrap();
+        assert_ne!(a, b); // the clone is independent
+                          // Different build order, same mapping -> equal (canonical key order).
+        let c: SortedColumnMap<Vec<i32>, Vec<&str>> =
+            SortedColumnMap::try_from_iter([(2, "b"), (1, "a")]).unwrap();
+        assert_eq!(a, c);
+        // A differing value breaks equality even with identical keys.
+        let d: SortedColumnMap<Vec<i32>, Vec<&str>> =
+            SortedColumnMap::try_from_iter([(1, "a"), (2, "B")]).unwrap();
+        assert_ne!(a, d);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

@@ -96,7 +96,11 @@ fn chunked_position<K: Eq>(keys: &[K], needle: &K) -> Option<usize> {
 /// [`UnsortedMap`](crate::UnsortedMap) — trades the `&[(K, V)]` view for a
 /// dense, value-free key scan (faster for large values; see the module docs).
 /// Needs only `K: Eq`.
-#[derive(Debug)]
+// Derives `Clone` but not `PartialEq`/`Eq`: correct map equality is
+// key-order-independent, yet swap-remove lets two equal maps store their columns
+// in different orders, so a structural derive would wrongly call them unequal.
+// The sorted twin derives equality because its stored order is canonical.
+#[derive(Clone, Debug)]
 pub struct ColumnMap<SK, SV> {
     keys: SK,
     values: SV,
@@ -483,6 +487,19 @@ mod alloc_tests {
         assert_eq!(m.values(), &[] as &[i32]);
         assert_eq!(m.try_insert(7, 70), Ok(None)); // both columns usable again
         assert_eq!(m.keys(), &[7]);
+    }
+
+    #[test]
+    fn clone_is_independent() {
+        // ColumnMap derives Clone but not PartialEq (order-sensitive).
+        let mut a: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        a.try_extend([(1, "a"), (2, "b")]).unwrap();
+        let b = a.clone();
+        a.try_insert(3, "c").unwrap();
+        assert_eq!(b.len(), 2); // clone unaffected by the later insert
+        assert_eq!(b.get(&1), Some(&"a"));
+        assert_eq!(b.get(&2), Some(&"b"));
+        assert_eq!(b.get(&3), None);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.
