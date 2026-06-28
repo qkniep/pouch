@@ -19,7 +19,7 @@ use crate::error::CapacityError;
 
 /// Two-tier store: `inline` until it fills, then everything migrates to `spill`
 /// and stays there. See the module docs.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spill<A, B> {
     inline: A,
     spill: B,
