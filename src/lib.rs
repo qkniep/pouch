@@ -63,7 +63,7 @@ pub use set::{SortedSet, UnsortedSet};
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 pub use sorted_column_map::SortedColumnMap;
-pub use store::{Capped, Store, StoreMut, StoreNew, Unbounded};
+pub use store::{Capped, ScratchVec, Spill, Store, StoreMut, StoreNew, Unbounded};
 
 #[cfg(feature = "alloc")]
 pub type VecSet<T> = SortedSet<Vec<T>>;
