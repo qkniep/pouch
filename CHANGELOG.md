@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[K]` column); the large-value lookup win with key-ordered iteration.
 - Bulk constructors (`try_from_iter` / `try_from_sorted_iter` / `from_sorted_iter`)
   and `try_extend`, with `Unbounded`-gated `FromIterator` / `Extend`.
+- `clear` on every collection, and `get_mut` on every map — an in-place value
+  update without the `entry` ceremony.
 
 ### Changed
 

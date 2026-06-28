@@ -141,6 +141,15 @@ impl<SK: Store, SV: Store> ColumnMap<SK, SV> {
     }
 }
 
+impl<SK: StoreMut, SV: StoreMut> ColumnMap<SK, SV> {
+    /// Remove every entry, clearing both columns and keeping their allocated
+    /// capacity. Needs no `Eq` bound — it only truncates the stores.
+    pub fn clear(&mut self) {
+        self.keys.clear();
+        self.values.clear();
+    }
+}
+
 impl<K, V, SK, SV> ColumnMap<SK, SV>
 where
     SK: Store<Elem = K>,
@@ -192,6 +201,15 @@ where
     // bound — elision ties the result to `&self`.
     pub fn get(&self, key: &K) -> Option<&V> {
         self.position(key).map(|i| &self.values.as_slice()[i])
+    }
+
+    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
+    /// update without the [`entry`](Self::entry) ceremony. No E0311 lifetime dance
+    /// (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value
+    /// column is already `&mut [V]`, so elision ties the result to `&mut self`.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = self.position(key)?;
+        Some(&mut self.values.as_mut_slice()[i])
     }
 
     /// Whether `key` is present. `O(n)`, but unlike [`get`](Self::get) it needs
@@ -450,6 +468,21 @@ mod alloc_tests {
             ColumnEntry::Occupied(_) => panic!("the map is empty"),
         }
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn get_mut_and_clear() {
+        let mut m: ColumnMap<Vec<i32>, Vec<i32>> = ColumnMap::new();
+        m.try_extend([(1, 10), (2, 20)]).unwrap();
+        *m.get_mut(&2).unwrap() += 5;
+        assert_eq!(m.get(&2), Some(&25));
+        assert_eq!(m.get_mut(&9), None);
+        m.clear();
+        assert!(m.is_empty());
+        assert_eq!(m.keys(), &[] as &[i32]);
+        assert_eq!(m.values(), &[] as &[i32]);
+        assert_eq!(m.try_insert(7, 70), Ok(None)); // both columns usable again
+        assert_eq!(m.keys(), &[7]);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

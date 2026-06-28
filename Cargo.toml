@@ -73,6 +73,10 @@ name = "set"
 harness = false
 
 [[bench]]
+name = "bag"
+harness = false
+
+[[bench]]
 name = "backend"
 harness = false
 

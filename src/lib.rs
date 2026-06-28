@@ -37,6 +37,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod bag;
 mod column_map;
 mod error;
 mod map;
@@ -52,6 +53,7 @@ use alloc::vec::Vec;
 
 #[cfg(feature = "arrayvec")]
 use arrayvec::ArrayVec;
+pub use bag::Bag;
 pub use column_map::{ColumnEntry, ColumnMap, OccupiedColumnEntry, VacantColumnEntry};
 pub use error::{BuildError, CapacityError, SortedBuildError};
 pub use map::{Entry, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
@@ -109,6 +111,21 @@ pub type ArraySet<T, const N: usize> = SortedSet<ArrayVec<T, N>>;
 
 #[cfg(feature = "heapless")]
 pub type HeaplessSet<T, const N: usize> = SortedSet<heapless::Vec<T, N>>;
+
+/// A [`Bag`] inline up to `N`, spilling to the heap beyond it — the recommended
+/// default for accumulating values inside a larger structure (multimap values,
+/// per-key event logs) where no uniqueness is needed. Keep `N` small.
+#[cfg(feature = "smallvec")]
+pub type SmallBag<T, const N: usize = 8> = Bag<SmallVec<[T; N]>>;
+/// A [`Bag`] backed by a single heap `Vec` — the pick for one large standalone bag.
+#[cfg(feature = "alloc")]
+pub type VecBag<T> = Bag<Vec<T>>;
+/// A [`Bag`] with a hard, allocation-free capacity of `N` (arrayvec backend).
+#[cfg(feature = "arrayvec")]
+pub type ArrayBag<T, const N: usize> = Bag<ArrayVec<T, N>>;
+/// A [`Bag`] with a hard, allocation-free capacity of `N` (heapless backend).
+#[cfg(feature = "heapless")]
+pub type HeaplessBag<T, const N: usize> = Bag<heapless::Vec<T, N>>;
 
 #[cfg(feature = "alloc")]
 pub type UnsortedVecSet<T> = UnsortedSet<Vec<T>>;

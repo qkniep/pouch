@@ -95,6 +95,14 @@ impl<S: Store> SortedSet<S> {
     }
 }
 
+impl<S: StoreMut> SortedSet<S> {
+    /// Remove every element, keeping the backing store's allocated capacity. Needs
+    /// no `Ord` bound — it only truncates the store.
+    pub fn clear(&mut self) {
+        self.store.clear();
+    }
+}
+
 impl<S: StoreMut> SortedSet<S>
 where
     S::Elem: Ord,
@@ -320,6 +328,14 @@ impl<S: Store> UnsortedSet<S> {
     }
 }
 
+impl<S: StoreMut> UnsortedSet<S> {
+    /// Remove every element, keeping the backing store's allocated capacity. Needs
+    /// no `Eq` bound — it only truncates the store.
+    pub fn clear(&mut self) {
+        self.store.clear();
+    }
+}
+
 impl<S: StoreMut> UnsortedSet<S>
 where
     S::Elem: Eq,
@@ -492,6 +508,22 @@ mod alloc_tests {
     #[should_panic(expected = "not in ascending order")]
     fn from_sorted_iter_panics_on_unsorted() {
         let _ = SortedSet::<Vec<i32>>::from_sorted_iter([1, 3, 2]);
+    }
+
+    #[test]
+    fn clear_empties_both_set_flavors() {
+        let mut sorted: SortedSet<Vec<i32>> = SortedSet::from_sorted_iter([1, 2, 3]);
+        sorted.clear();
+        assert!(sorted.is_empty());
+        assert_eq!(sorted.as_slice(), &[] as &[i32]);
+        assert!(sorted.insert(5)); // usable again after clear
+        assert_eq!(sorted.as_slice(), &[5]);
+
+        let mut unsorted: UnsortedSet<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        unsorted.clear();
+        assert!(unsorted.is_empty());
+        assert!(unsorted.insert(9));
+        assert_eq!(unsorted.len(), 1);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.
