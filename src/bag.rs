@@ -1,14 +1,13 @@
 //! Bag — a multiset/sequence with **no membership discipline**.
 //!
 //! A [`Bag`] holds values with duplicates allowed, in insertion order — a `Vec`
-//! lifted over any [`Store`](crate::store::Store): `try_push` appends in `O(1)`,
-//! `pop` and `swap_remove` delete in `O(1)`, `remove` deletes in `O(n)` keeping
-//! order. It is the cheapest collection in the crate: it needs **no bound on the
-//! element type** (no `Eq` / `Ord` / `Hash`), so bulk construction is a bare
-//! append — no dedup, no sort, no duplicate-key check, and a fully unconstrained
-//! `FromIterator`. Reach for it for the inside-a-map case where you accumulate
-//! values per key and never need uniqueness (multimap values, group-by, per-key
-//! event logs); the `Eq`-gated [`contains`](Bag::contains) /
+//! lifted over any [`Store`]: `try_push` appends in `O(1)`, `pop` and `swap_remove`
+//! delete in `O(1)`, `remove` deletes in `O(n)` keeping order. It is the cheapest
+//! collection in the crate: it needs **no bound on the element type** (no `Eq` / `Ord` /
+//! `Hash`), so bulk construction is a bare append — no dedup, no sort, no duplicate-key
+//! check, and a fully unconstrained `FromIterator`. Reach for it for the inside-a-map
+//! case where you accumulate values per key and never need uniqueness (multimap values,
+//! group-by, per-key event logs); the `Eq`-gated [`contains`](Bag::contains) /
 //! [`count`](Bag::count) add multiset queries without constraining the core.
 
 use crate::error::CapacityError;
