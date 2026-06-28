@@ -74,13 +74,7 @@ where
         );
         SortedMap { store }
     }
-}
 
-impl<K, V, S> SortedMap<S>
-where
-    S: StoreMut<Elem = (K, V)>,
-    K: Ord,
-{
     // NOTE: returning `&V` derived from the projected `Elem = (K, V)` slice needs
     // an explicit `K/V: 'a` bound — rustc does not infer implied bounds through the
     // associated-type projection (E0311). Worth knowing when you build out the API.
@@ -95,6 +89,21 @@ where
             .map(|i| &s[i].1)
     }
 
+    /// Whether `key` is present. `O(log n)` — like [`get`](Self::get) but yields a
+    /// yes/no answer, so it needs no value lifetime.
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.store
+            .as_slice()
+            .binary_search_by(|(k, _)| k.cmp(key))
+            .is_ok()
+    }
+}
+
+impl<K, V, S> SortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)>,
+    K: Ord,
+{
     /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
     /// update without the [`entry`](Self::entry) ceremony. Carries the same
     /// explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311 quirk).
@@ -109,15 +118,6 @@ where
             .binary_search_by(|(k, _)| k.cmp(key))
             .ok()?;
         Some(&mut self.store.as_mut_slice()[i].1)
-    }
-
-    /// Whether `key` is present. `O(log n)` — like [`get`](Self::get) but yields a
-    /// yes/no answer, so it needs no value lifetime.
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.store
-            .as_slice()
-            .binary_search_by(|(k, _)| k.cmp(key))
-            .is_ok()
     }
 
     /// Insert or replace. Replacing an existing key consumes no capacity and so
@@ -330,13 +330,7 @@ where
         );
         UnsortedMap { store }
     }
-}
 
-impl<K, V, S> UnsortedMap<S>
-where
-    S: StoreMut<Elem = (K, V)>,
-    K: Eq,
-{
     /// Index of the entry whose key equals `key`, or `None`. Every key lookup —
     /// `get`, `try_insert`, `remove`, `try_from_iter` — routes through this single
     /// scan, so they can never disagree on which entry is "the one for this key"
@@ -353,6 +347,18 @@ where
         self.position(key).map(|i| &self.store.as_slice()[i].1)
     }
 
+    /// Whether `key` is present. `O(n)` — routes through the same internal linear
+    /// scan as the other lookups, so it stays consistent with [`get`](Self::get).
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.position(key).is_some()
+    }
+}
+
+impl<K, V, S> UnsortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)>,
+    K: Eq,
+{
     /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
     /// update without the [`entry`](Self::entry) ceremony. Routes through the same
     /// internal linear scan as [`get`](Self::get); carries the same explicit
@@ -364,12 +370,6 @@ where
     {
         let i = self.position(key)?;
         Some(&mut self.store.as_mut_slice()[i].1)
-    }
-
-    /// Whether `key` is present. `O(n)` — routes through the same internal linear
-    /// scan as the other lookups, so it stays consistent with [`get`](Self::get).
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.position(key).is_some()
     }
 
     /// Insert or replace. Replacing an existing key consumes no capacity and so

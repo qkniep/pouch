@@ -20,8 +20,8 @@ src/lib.rs            facade: crate docs, no_std setup, `pub use` re-exports, ty
 src/error.rs          CapacityError, BuildError, SortedBuildError
 src/store.rs          Store / StoreMut / StoreNew / Unbounded traits  (pub mod store)
 src/store/capped.rs   Capped<S> adapter
-src/store/backend.rs  cfg-gated `mod vec; mod smallvec; …` — impls only, nothing exported
-src/store/backend/*   one file per backend (vec, smallvec, tinyvec, arrayvec, heapless)
+src/store/backend.rs  mostly cfg-gated `mod vec; mod smallvec; …` — impls only, nothing exported
+src/store/backend/*   one file per backend (slice, vec, smallvec, tinyvec, arrayvec, heapless)
 src/set.rs            SortedSet, UnsortedSet
 src/map.rs            SortedMap, UnsortedMap
 src/column_map.rs     ColumnMap (struct-of-arrays unsorted map — two stores)
@@ -143,6 +143,19 @@ when it has one — every current backend does, including `heapless::Vec`
 note that rotate-by-one still monomorphizes core's general `ptr_rotate` (hundreds of
 bytes of flash), so it's a fallback, not the default. `src/store/backend/heapless.rs`
 documents both in its module comment.
+
+A backend may be **read-only**: implement `Store` alone and skip `StoreMut` /
+`StoreNew` / `Unbounded`. `src/store/backend/slice.rs` (`&[T]` and `&[T; N]`) is the
+one shipped example — it backs lookups (`contains` / `get`) but no mutation, reports
+`capacity() == Some(len)` (a borrowed slice is permanently full), needs no
+dependency or `alloc`, and is therefore the **sole ungated** `mod` in
+`backend.rs` (usable even under `--no-default-features`). Its headline use is
+wrapping a `static` sorted table via `from_store` (`SliceSet` / `SliceMap`) for
+zero-alloc lookups out of flash. This is *why* the read-only lookups (`get`,
+`contains_key`, and the private `position`/`search`) live in each collection's
+`impl<S: Store>` block, **not** the `impl<S: StoreMut>` block — a read-only
+backend must reach them. Keep new read-only accessors in the `Store` block;
+only `&mut`-returning ones (`get_mut`) belong under `StoreMut`.
 
 ## Invariants and gotchas
 
