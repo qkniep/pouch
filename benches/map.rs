@@ -1,10 +1,10 @@
-//! Map benchmarks — pouch `SortedMap` / `UnsortedMap` / `ColumnMap` vs
+//! Map benchmarks — pouch `SortedMap` / `UnsortedMap` / `UnsortedColumnMap` vs
 //! `litemap::LiteMap`, plus `std::collections::{BTreeMap, HashMap}` for
 //! reference.
 //!
 //! `SortedMap` is the direct shape-match for `litemap` (a flat, key-sorted
 //! `Vec`). The benched surface is **build** and **get** — the operations common
-//! to every contender. `ColumnMap` is the struct-of-arrays unsorted map; this
+//! to every contender. `UnsortedColumnMap` is the struct-of-arrays unsorted map; this
 //! file pits it at `V = u64` against the whole field, while the value-size
 //! sweep that shows off its denser scan (the `sizeof(V)/sizeof(K)` axis) lives
 //! in `benches/soa.rs`. The `HashMap` baseline uses the std default (SipHash)
@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use litemap::LiteMap;
-use pouch::{ColumnMap, SortedMap, UnsortedMap};
+use pouch::{SortedMap, UnsortedColumnMap, UnsortedMap};
 use rustc_hash::FxHashMap;
 use vecmap::VecMap;
 
@@ -67,10 +67,10 @@ impl Map for PouchUnsorted {
 
 // The struct-of-arrays unsorted map: keys and values in separate `Vec`s. Same
 // O(n) scan as `PouchUnsorted` but over a dense `[u64]` key column.
-struct PouchColumn(ColumnMap<Vec<u64>, Vec<u64>>);
+struct PouchColumn(UnsortedColumnMap<Vec<u64>, Vec<u64>>);
 impl Map for PouchColumn {
     fn build(keys: &[u64]) -> Self {
-        let mut m = ColumnMap::new();
+        let mut m = UnsortedColumnMap::new();
         for &k in keys {
             let _ = m.try_insert(k, k);
         }

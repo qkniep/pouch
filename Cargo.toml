@@ -34,13 +34,22 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "smallvec", "tinyvec", "arrayvec", "heapless"]
+# Deliberately lean: enough for the blessed `Set`/`Map` aliases and no more.
+# Every other backend is opt-in — pulling four overlapping inline-vec crates
+# into every default build would contradict the minimal-footprint brand, and
+# the embedded users who want arrayvec/heapless build with
+# `--no-default-features` anyway.
+default = ["std", "smallvec"]
 std = ["alloc"]
 alloc = []
 smallvec = ["dep:smallvec", "alloc"]
 tinyvec = ["dep:tinyvec", "alloc"]
 arrayvec = ["dep:arrayvec"]
 heapless = ["dep:heapless"]
+# The struct-of-arrays maps (`UnsortedColumnMap` / `SortedColumnMap`) — a
+# specialist layout for large values / miss-heavy scans, kept out of the
+# default surface. Backend-agnostic, so it enables no dependency.
+soa = []
 
 [dependencies]
 smallvec = { version = "1", default-features = false, features = ["const_generics"], optional = true }
@@ -64,29 +73,42 @@ micromap = "0.3"
 # collections designed to live inside another structure (the `population` bench).
 thincollections = "0.5"
 
+# `required-features` scopes each dev target to the features it names, so
+# `--all-targets` builds under partial feature sets (default included) simply
+# skip the targets they can't compile instead of erroring.
+[[test]]
+name = "smoke"
+required-features = ["std", "smallvec", "tinyvec", "arrayvec", "heapless", "soa"]
+
 [[bench]]
 name = "map"
 harness = false
+required-features = ["std", "heapless", "soa"]
 
 [[bench]]
 name = "set"
 harness = false
+required-features = ["std", "heapless"]
 
 [[bench]]
 name = "bag"
 harness = false
+required-features = ["std"]
 
 [[bench]]
 name = "backend"
 harness = false
+required-features = ["std", "smallvec", "arrayvec", "heapless"]
 
 [[bench]]
 name = "population"
 harness = false
+required-features = ["std", "smallvec"]
 
 [[bench]]
 name = "soa"
 harness = false
+required-features = ["std", "soa"]
 
 [lints.rust]
 # The crate is unsafe-free; `forbid` keeps it that way (no opt-in `#[allow]`).

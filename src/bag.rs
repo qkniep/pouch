@@ -1,17 +1,24 @@
-//! Bag — a multiset/sequence with **no membership discipline**.
+//! Bag — the `Vec`-shaped facade over any [`Store`].
 //!
-//! A [`Bag`] holds values with duplicates allowed, in insertion order — a `Vec`
-//! lifted over any [`Store`]: `try_push` appends in `O(1)`, `pop` and `swap_remove`
-//! delete in `O(1)`, `remove` deletes in `O(n)` keeping order. It is the cheapest
-//! collection in the crate: it needs **no bound on the element type** (no `Eq` / `Ord` /
-//! `Hash`), so bulk construction is a bare append — no dedup, no sort, no duplicate-key
-//! check, and a fully unconstrained `FromIterator`. Reach for it for the inside-a-map
-//! case where you accumulate values per key and never need uniqueness (multimap values,
-//! group-by, per-key event logs); the `Eq`-gated [`contains`](Bag::contains) /
+//! A [`Bag`] holds values with duplicates allowed, in insertion order, and no
+//! invariant of any kind: `try_push` appends in `O(1)`, `pop` and `swap_remove`
+//! delete in `O(1)`, `remove` deletes in `O(n)` keeping order. **Its job is to
+//! give the crate's *composed* stores an ergonomic sequence API.** A raw
+//! [`Capped`](crate::Capped)-, [`Spill`](crate::Spill)- or
+//! [`ScratchVec`](crate::ScratchVec)-built store only speaks the index-based
+//! [`StoreMut`] contract; wrap it in a `Bag` and it speaks `Vec`:
+//! `Bag<Capped<Vec<T>>>` is a capped vector, `Bag<Spill<ArrayVec<…>,
+//! ScratchVec<…>>>` a two-tier allocation-free one. (Over a plain `Vec` or
+//! `SmallVec` a `Bag` adds nothing — use the backend directly.)
+//!
+//! It is also the cheapest collection in the crate: it needs **no bound on the
+//! element type** (no `Eq` / `Ord` / `Hash`), so bulk construction is a bare
+//! append — no dedup, no sort, no duplicate-key check, and a fully
+//! unconstrained `FromIterator`. The `Eq`-gated [`contains`](Bag::contains) /
 //! [`count`](Bag::count) add multiset queries without constraining the core.
 
 use crate::error::CapacityError;
-use crate::store::{append_all, push, Store, StoreMut, StoreNew, Unbounded};
+use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
 
 /// A sequence of values with duplicates allowed and no ordering or uniqueness
 /// invariant. The crate's lightest collection — `Vec`-like over any backend, with
@@ -56,6 +63,10 @@ impl<S: Store> Bag<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
+    /// Iterate the elements in insertion order.
+    pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
+        self.store.as_slice().iter()
+    }
     /// The element at `i` in insertion order, or `None` if out of bounds.
     pub fn get(&self, i: usize) -> Option<&S::Elem> {
         self.store.as_slice().get(i)
@@ -82,6 +93,16 @@ impl<S: StoreMut> Bag<S> {
     /// arbitrary mutation (reorder, overwrite) is always valid.
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
+    }
+    /// Iterate the elements mutably, in insertion order.
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, S::Elem> {
+        self.store.as_mut_slice().iter_mut()
+    }
+    /// Keep only the elements for which `f` returns `true`, preserving order.
+    /// `O(n)`. The predicate gets `&mut`, so it can edit the elements it keeps —
+    /// a bag has no invariant an edit could break.
+    pub fn retain<F: FnMut(&mut S::Elem) -> bool>(&mut self, f: F) {
+        retain_in(&mut self.store, f);
     }
     /// Mutable reference to the element at `i`, or `None` if out of bounds.
     pub fn get_mut(&mut self, i: usize) -> Option<&mut S::Elem> {
@@ -149,6 +170,38 @@ impl<S: StoreMut + Unbounded> Bag<S> {
             Ok(()) => {}
             Err(_) => unreachable!("Unbounded store reported a capacity failure"),
         }
+    }
+}
+
+impl<'a, S: Store> IntoIterator for &'a Bag<S> {
+    type Item = &'a S::Elem;
+    type IntoIter = core::slice::Iter<'a, S::Elem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, S: StoreMut> IntoIterator for &'a mut Bag<S> {
+    type Item = &'a mut S::Elem;
+    type IntoIter = core::slice::IterMut<'a, S::Elem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+/// Consume the bag, yielding its elements in insertion order. Available when
+/// the backing store is itself consumable into its elements.
+impl<S> IntoIterator for Bag<S>
+where
+    S: Store + IntoIterator<Item = <S as Store>::Elem>,
+{
+    type Item = S::Elem;
+    type IntoIter = <S as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.store.into_iter()
     }
 }
 
@@ -236,6 +289,25 @@ mod alloc_tests {
         assert!(bag.is_empty());
         bag.push(7);
         assert_eq!(bag.as_slice(), &[7]);
+    }
+
+    #[test]
+    fn iteration_and_retain() {
+        let mut bag: Bag<Vec<i32>> = [1, 2, 2, 3].into_iter().collect();
+        assert!(bag.iter().eq(&[1, 2, 2, 3]));
+        assert!((&bag).into_iter().count() == 4);
+        for x in &mut bag {
+            *x *= 10;
+        }
+        assert_eq!(bag.as_slice(), &[10, 20, 20, 30]);
+        // retain's `&mut` predicate can edit the kept elements as it filters.
+        bag.retain(|x| {
+            *x += 1;
+            *x > 15
+        });
+        assert_eq!(bag.as_slice(), &[21, 21, 31]);
+        let owned: Vec<i32> = bag.into_iter().collect();
+        assert_eq!(owned, &[21, 21, 31]);
     }
 
     #[test]

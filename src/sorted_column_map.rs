@@ -6,7 +6,7 @@
 //! *two* parallel, length-locked stores — `keys: SK` (`Elem = K`, kept sorted)
 //! and `values: SV` (`Elem = V`) — so a lookup binary-searches a dense `[K]`
 //! slice rather than striding over `(K, V)` pairs. It is the sorted twin of
-//! [`ColumnMap`](crate::ColumnMap) and the struct-of-arrays twin of
+//! [`UnsortedColumnMap`](crate::UnsortedColumnMap) and the struct-of-arrays twin of
 //! [`SortedMap`](crate::SortedMap).
 //!
 //! Its payoff is **narrow**, and worth stating plainly (measured against
@@ -23,14 +23,15 @@
 //! So reach for this only when values are large **and** you need key-ordered
 //! iteration **and** lookups dominate; otherwise prefer
 //! [`SortedMap`](crate::SortedMap). If you do not
-//! need ordering, [`ColumnMap`](crate::ColumnMap) is the unsorted SoA map.
+//! need ordering, [`UnsortedColumnMap`](crate::UnsortedColumnMap) is the unsorted SoA
+//! map.
 //!
-//! Same two-store API trade as [`ColumnMap`](crate::ColumnMap): no
+//! Same two-store API trade as [`UnsortedColumnMap`](crate::UnsortedColumnMap): no
 //! `as_slice() -> &[(K, V)]` (enumerate via [`keys`](SortedColumnMap::keys) /
 //! [`values`](SortedColumnMap::values)),
 //! [`from_store`](SortedColumnMap::from_store) takes two stores, and
 //! [`capacity`](SortedColumnMap::capacity) is the `min` of the two columns'
-//! bounds. Unlike `ColumnMap`'s O(1) swap-remove, the order-preserving
+//! bounds. Unlike `UnsortedColumnMap`'s O(1) swap-remove, the order-preserving
 //! [`try_insert`](SortedColumnMap::try_insert) /
 //! [`remove`](SortedColumnMap::remove) shift *both* columns in lockstep (`O(log
 //! n)` search, `O(n)` shift).
@@ -145,7 +146,7 @@ where
     }
 
     /// Whether `key` is present. `O(log n)`. Unlike
-    /// [`ColumnMap`](crate::ColumnMap), which scans its key column with a
+    /// [`UnsortedColumnMap`](crate::UnsortedColumnMap), which scans its key column with a
     /// vectorizable boolean `contains`, the sorted layout shares the `O(log
     /// n)` binary search with [`get`](Self::get): a linear scan would
     /// forfeit the very `O(log n)` the ordering buys.
@@ -207,8 +208,8 @@ where
 
     /// Remove the entry for `key`, returning its value. Order-preserving shift
     /// in *both* columns (not the swap-remove
-    /// [`ColumnMap`](crate::ColumnMap) can use): `O(log n)` search, `O(n)`
-    /// shift.
+    /// [`UnsortedColumnMap`](crate::UnsortedColumnMap) can use): `O(log n)` search,
+    /// `O(n)` shift.
     pub fn remove(&mut self, key: &K) -> Option<V> {
         match self.search(key) {
             Ok(i) => {
@@ -277,7 +278,7 @@ where
     /// (append-all then sort once, `O(n log n)`), two parallel columns
     /// cannot be co-sorted without a scratch buffer, so this stays `O(n²)`
     /// — matching
-    /// [`ColumnMap::try_from_iter`](crate::ColumnMap::try_from_iter). The
+    /// [`UnsortedColumnMap::try_from_iter`](crate::UnsortedColumnMap::try_from_iter). The
     /// upside: a duplicate key is caught *before* it is inserted, so it
     /// never consumes capacity even on a bounded store.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
@@ -327,6 +328,23 @@ where
     }
 }
 
+impl<K, V, SK, SV> SortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K> + Unbounded,
+    SV: StoreMut<Elem = V> + Unbounded,
+    K: Ord,
+{
+    /// Infallible insert-or-replace, returning the previous value — available
+    /// only when **both** columns are [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.try_insert(key, value) {
+            Ok(prev) => prev,
+            Err(_) => unreachable!("Unbounded columns reported a capacity failure"),
+        }
+    }
+}
+
 impl<K, V, SK, SV> Extend<(K, V)> for SortedColumnMap<SK, SV>
 where
     SK: StoreMut<Elem = K> + Unbounded,
@@ -359,7 +377,7 @@ mod alloc_tests {
         let mut m: SortedColumnMap<Vec<i32>, Vec<&str>> = SortedColumnMap::new();
         assert_eq!(m.try_insert(2, "b"), Ok(None));
         assert_eq!(m.try_insert(1, "a"), Ok(None));
-        // Inserts shift to keep the key column sorted (not appended like ColumnMap).
+        // Inserts shift to keep the key column sorted (not appended like UnsortedColumnMap).
         assert_eq!(m.keys(), &[1, 2]);
         assert_eq!(m.values(), &["a", "b"]);
         assert_eq!(m.get(&1), Some(&"a"));

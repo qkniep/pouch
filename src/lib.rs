@@ -1,32 +1,55 @@
-//! `pouch` — small, fast, backend-generic sets and maps.
+//! `pouch` — sets and maps whose memory strategy is a type parameter.
 //!
-//! A `pouch` is a small container that holds whatever you put in it regardless of
-//! the backing store: `Vec`, `SmallVec`, `TinyVec`, `ArrayVec`, or `heapless::Vec`,
-//! optionally bounded by a runtime cap. A borrowed `&[T]` (or `&[T; N]`) is also a
-//! (read-only) backend — wrap a `static` sorted table for zero-alloc lookups
-//! straight out of flash (see [`SliceSet`] / [`SliceMap`]). `no_std`-first.
+//! Write against one collection API and choose *where the elements live* by
+//! naming the backing store: heap (`Vec`), inline (`SmallVec`, `TinyVec`,
+//! `ArrayVec`, `heapless::Vec`), borrowed (`&[T]`, [`ScratchVec`]), or a
+//! composition ([`Capped`] adds a runtime bound to any store, [`Spill`] chains
+//! two tiers). `no_std`-first, `#![forbid(unsafe_code)]`, and honest about
+//! capacity: on a bounded store every insert is fallible and hands the rejected
+//! element back ([`CapacityError`]), while the [`Unbounded`] marker is what
+//! unlocks the infallible `insert` — the type system remembers which stores can
+//! fail.
 //!
-//! Three orthogonal axes are separated deliberately, one per module:
-//!   * **storage**   — where elements live (heap / inline / hybrid): the [`Store`] trait
-//!     family, in [`store`].
-//!   * **bound**     — max logical element count: `Store::capacity() -> Option<usize>`,
+//! Three orthogonal axes are separated deliberately, one per layer:
+//!   * **storage**  — where elements live (heap / inline / hybrid / borrowed): the
+//!     [`store::Store`] trait family, implemented once per backend.
+//!   * **bound**    — max logical element count: `Store::capacity() -> Option<usize>`,
 //!     with [`Capped`] adding a runtime bound to any store.
-//!   * **ordering**  — sorted vs unsorted, in the collection layer: [`SortedSet`] /
+//!   * **ordering** — sorted vs unsorted, in the collection layer: [`SortedSet`] /
 //!     [`UnsortedSet`] and [`SortedMap`] / [`UnsortedMap`], NOT the store.
 //!
-//! [`ColumnMap`] is a struct-of-arrays variant of the unsorted map: keys and values
-//! live in two parallel stores for a denser key scan that vectorizes (~2× over a
-//! plain index scan, even for word-sized values) and skips value payloads (a further
-//! win for large values once the map outgrows cache), trading the `&[(K, V)]` view.
-//! [`SortedColumnMap`] is its sorted twin — the two collections backed by two stores.
+//! # Picking a store
 //!
-//! `try_insert_at` is the single universal mutation primitive. Its `Err` arm is
-//! reachable for fixed-capacity backends (arrayvec / heapless) *and* for growable
-//! backends wrapped in [`Capped`]. The [`Unbounded`] marker is what lets a
-//! collection expose an infallible `insert`.
+//! [`Set`] / [`Map`] (inline up to `N`, heap after — the nested-collections
+//! default) are the only blessed aliases besides the read-only [`SliceSet`] /
+//! [`SliceMap`]. Every other combination is spelled, not named — spelling it
+//! *is* the API:
 //!
-//! NOTE on the two "full"s:
-//!   1. *logical capacity* (arrayvec/heapless bound, or a `Capped` cap) -> recoverable
+//! | I want… | Spell it |
+//! |---|---|
+//! | many small sets inside a big structure | `Set<T>`, tuned via `Set<T, N>` (= `SortedSet<SmallVec<[T; N]>>`) |
+//! | one large heap set | `SortedSet<Vec<T>>` |
+//! | a hard capacity, allocation-free | `SortedSet<ArrayVec<T, N>>` or `SortedSet<heapless::Vec<T, N>>` |
+//! | a runtime cap on a growable store | `SortedSet<Capped<Vec<T>>>` |
+//! | zero-alloc lookups in a `static` table | [`SliceSet`] / [`SliceMap`] (read-only, in flash) |
+//! | inline, overflowing into a borrowed buffer | `SortedSet<Spill<ArrayVec<T, N>, ScratchVec<T>>>` |
+//! | `Eq`-only elements, `O(1)` delete | `UnsortedSet<…>` / `UnsortedMap<…>` |
+//! | a `Vec`-shaped view of a composed store | [`Bag`], e.g. `Bag<Capped<Vec<T>>>` |
+//!
+//! The same spellings work for maps — the element type is `(K, V)`:
+//! `SortedMap<ArrayVec<(K, V), N>>`, `SortedMap<Capped<Vec<(K, V)>>>`, ….
+//!
+//! # Specialists
+//!
+//! Behind the non-default `soa` feature live the struct-of-arrays maps
+//! (`UnsortedColumnMap` and its sorted twin `SortedColumnMap`): keys and values
+//! in two parallel stores, so a key scan walks a dense `[K]` column and never
+//! drags value payloads through cache. Worth it for large values or miss-heavy
+//! scans; for everything else [`SortedMap`] is the right default.
+//!
+//! # NOTE on the two "full"s
+//!
+//!   1. *logical capacity* (an arrayvec/heapless bound, or a `Capped` cap) -> recoverable
 //!      [`CapacityError`], modelled here.
 //!   2. *allocator OOM* (a growable backend cannot grow) -> `Vec::insert` aborts; only
 //!      `try_reserve` surfaces it. Out of scope. A `Capped<Vec<_>>` is NOT abort-free; it
@@ -40,37 +63,39 @@ extern crate alloc;
 extern crate std;
 
 mod bag;
+#[cfg(feature = "soa")]
 mod column_map;
 mod error;
 mod map;
 mod set;
+#[cfg(feature = "soa")]
 mod sorted_column_map;
 pub mod store;
 
-// ---------------------------------------------------------------------------
-// Ergonomic type aliases (they span both the store and collection layers)
-// ---------------------------------------------------------------------------
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
-
-#[cfg(feature = "arrayvec")]
-use arrayvec::ArrayVec;
 pub use bag::Bag;
-pub use column_map::{ColumnEntry, ColumnMap, OccupiedColumnEntry, VacantColumnEntry};
-pub use error::{BuildError, CapacityError, SortedBuildError};
-pub use map::{Entry, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
+#[cfg(feature = "soa")]
+pub use column_map::{ColumnEntry, OccupiedColumnEntry, UnsortedColumnMap, VacantColumnEntry};
+pub use error::{BuildError, CapacityError};
+pub use map::{Entry, MapIter, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
 pub use set::{SortedSet, UnsortedSet};
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
+#[cfg(feature = "soa")]
 pub use sorted_column_map::SortedColumnMap;
-pub use store::{Capped, ScratchVec, Spill, Store, StoreMut, StoreNew, Unbounded};
+// The store *adapters* appear in user-written type signatures
+// (`SortedSet<Capped<Vec<T>>>`), so they live at the root alongside `Unbounded`
+// (which gates the infallible APIs and shows up in user bounds). The `Store` /
+// `StoreMut` / `StoreNew` contract is for backend authors and generic code and
+// stays under [`store`] — one canonical path per item.
+pub use store::{Capped, ScratchVec, Spill, Unbounded};
 
-#[cfg(feature = "alloc")]
-pub type VecSet<T> = SortedSet<Vec<T>>;
-#[cfg(feature = "alloc")]
-pub type VecMap<K, V> = SortedMap<Vec<(K, V)>>;
-#[cfg(feature = "alloc")]
-pub type CappedVecSet<T> = SortedSet<Capped<Vec<T>>>;
+// ---------------------------------------------------------------------------
+// The blessed type aliases. Deliberately few: `Set`/`Map` name the opinionated
+// default (inline-then-heap), `SliceSet`/`SliceMap` name the read-only
+// borrowed-table trick that is otherwise hard to discover. Every other
+// store/collection combination is spelled out at the use site — see the
+// "Picking a store" table in the crate docs.
+// ---------------------------------------------------------------------------
 
 /// The recommended default set: a sorted set that keeps its elements **inline**
 /// (no heap allocation) until it outgrows `N`, then spills to the heap. This is the
@@ -80,8 +105,9 @@ pub type CappedVecSet<T> = SortedSet<Capped<Vec<T>>>;
 ///
 /// `Set<T>` just works; `Set<T, N>` tunes the inline capacity. Keep `N` small —
 /// `size_of::<Set<T, N>>` grows with `N · size_of::<T>()`, and you may have millions
-/// of these. Reach for [`VecSet`] for a single large set, or [`ArraySet`] /
-/// [`HeaplessSet`] for a hard cap with no allocator.
+/// of these. Reach for `SortedSet<Vec<T>>` for a single large set, or
+/// `SortedSet<ArrayVec<T, N>>` / `SortedSet<heapless::Vec<T, N>>` for a hard cap
+/// with no allocator.
 ///
 /// ```
 /// use pouch::Set;
@@ -99,57 +125,14 @@ pub type Set<T, const N: usize = 8> = SortedSet<SmallVec<[T; N]>>;
 #[cfg(feature = "smallvec")]
 pub type Map<K, V, const N: usize = 8> = SortedMap<SmallVec<[(K, V); N]>>;
 
-/// A sorted set inline up to `N`, spilling to the heap beyond it. [`Set`] is this
-/// with a default `N`; name `SmallSet` when you want the capacity explicit.
-#[cfg(feature = "smallvec")]
-pub type SmallSet<T, const N: usize> = SortedSet<SmallVec<[T; N]>>;
-/// A sorted map inline up to `N`, spilling to the heap beyond it. [`Map`] is this
-/// with a default `N`.
-#[cfg(feature = "smallvec")]
-pub type SmallMap<K, V, const N: usize> = SortedMap<SmallVec<[(K, V); N]>>;
-
-#[cfg(feature = "arrayvec")]
-pub type ArraySet<T, const N: usize> = SortedSet<ArrayVec<T, N>>;
-
-#[cfg(feature = "heapless")]
-pub type HeaplessSet<T, const N: usize> = SortedSet<heapless::Vec<T, N>>;
-
 /// A **read-only** sorted set over a borrowed slice — no dependency, no `alloc`,
 /// so it works in any build. Wrap an already-sorted, duplicate-free slice (e.g. a
 /// `static` table living in flash) via [`SortedSet::from_store`] for zero-alloc
 /// `contains` with no copy: `SliceSet::from_store(&TABLE[..])`. It exposes only
-/// the read API ([`Store`], not [`StoreMut`]).
+/// the read API ([`store::Store`], not [`store::StoreMut`]).
 pub type SliceSet<'a, T> = SortedSet<&'a [T]>;
 /// A **read-only** sorted map over a borrowed `&[(K, V)]` slice — the [`SliceSet`]
 /// story for key/value pairs. Wrap a `static` sorted-by-key table via
 /// [`SortedMap::from_store`] for zero-alloc `get`/`contains_key` straight out of
 /// flash: `SliceMap::from_store(&TABLE[..])`.
 pub type SliceMap<'a, K, V> = SortedMap<&'a [(K, V)]>;
-
-/// A [`Bag`] inline up to `N`, spilling to the heap beyond it — the recommended
-/// default for accumulating values inside a larger structure (multimap values,
-/// per-key event logs) where no uniqueness is needed. Keep `N` small.
-#[cfg(feature = "smallvec")]
-pub type SmallBag<T, const N: usize = 8> = Bag<SmallVec<[T; N]>>;
-/// A [`Bag`] backed by a single heap `Vec` — the pick for one large standalone bag.
-#[cfg(feature = "alloc")]
-pub type VecBag<T> = Bag<Vec<T>>;
-/// A [`Bag`] with a hard, allocation-free capacity of `N` (arrayvec backend).
-#[cfg(feature = "arrayvec")]
-pub type ArrayBag<T, const N: usize> = Bag<ArrayVec<T, N>>;
-/// A [`Bag`] with a hard, allocation-free capacity of `N` (heapless backend).
-#[cfg(feature = "heapless")]
-pub type HeaplessBag<T, const N: usize> = Bag<heapless::Vec<T, N>>;
-
-#[cfg(feature = "alloc")]
-pub type UnsortedVecSet<T> = UnsortedSet<Vec<T>>;
-#[cfg(feature = "alloc")]
-pub type UnsortedVecMap<K, V> = UnsortedMap<Vec<(K, V)>>;
-/// A [`ColumnMap`] with both columns heap-backed by `Vec` — the struct-of-arrays
-/// unsorted map (keys and values in separate allocations).
-#[cfg(feature = "alloc")]
-pub type ColumnVecMap<K, V> = ColumnMap<Vec<K>, Vec<V>>;
-/// A [`SortedColumnMap`] with both columns heap-backed by `Vec` — the sorted
-/// struct-of-arrays map (keys and values in separate allocations).
-#[cfg(feature = "alloc")]
-pub type SortedColumnVecMap<K, V> = SortedColumnMap<Vec<K>, Vec<V>>;
