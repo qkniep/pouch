@@ -65,9 +65,13 @@ cargo nextest run --lib --no-default-features --features heapless  # fixed-cap, 
 ```
 
 The `--lib` is required: it scopes the run to the in-crate unit tests, which gate
-themselves per backend with `#[cfg(feature = …)]`. A bare `nextest run` under a
-partial feature set also tries to compile `tests/smoke.rs`, which names every
-backend ungated and so won't build — that suite is for the all-features run only.
+themselves per backend with `#[cfg(feature = …)]`. `tests/smoke.rs` names every
+backend ungated, so its `[[test]]` entry in `Cargo.toml` carries
+`required-features` for the full feature set — under any partial set (the
+default included, now that defaults are lean) cargo **silently skips** the
+target rather than failing to build it. A green partial run therefore says
+nothing about the smoke suite; only the all-features run (`just test`, CI's
+test job) executes it.
 
 ## Architecture — the three orthogonal axes
 
@@ -198,10 +202,11 @@ only `&mut`-returning ones (`get_mut`) belong under `StoreMut`.
   `forbid`; `missing_debug_implementations` is on, so every new public type needs
   `#[derive(Debug)]`; a public `len` needs an `is_empty` and a public `new` needs a
   `Default` (clippy). New public collection structs should mirror their sorted/unsorted twin.
-- **Feature powerset uses `--no-dev-deps`.** `tests/smoke.rs` references several backends
-  at once (`Vec`, `SmallVec`, `tinyvec::TinyVec`), so `cargo hack --feature-powerset
-  --all-targets` would fail to compile the tests under partial feature sets. `just hack`
-  and `feature-powerset.yml` check the library surface only (`--no-dev-deps`).
+- **Feature powerset uses `--no-dev-deps`.** It checks the public feature surface in
+  isolation, catching a missing `#[cfg(feature = …)]` gate that a dev-dependency could
+  otherwise mask. Dev targets aren't the reason (smoke and every bench carry
+  `required-features`, so partial sets skip rather than break them) and aren't covered:
+  `just hack` and `feature-powerset.yml` check the library surface only.
 
 ## Feature flags (`Cargo.toml`)
 

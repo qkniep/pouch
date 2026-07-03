@@ -61,9 +61,9 @@ actionlint:
     actionlint
 
 # `--no-dev-deps` checks the public feature surface in isolation, catching a missing
-# `#[cfg(feature = "...")]` gate that a dev-dependency would otherwise mask (and this
-# crate's integration tests span several backend features, so `--all-targets` can't
-# type-check under partial feature sets anyway).
+# `#[cfg(feature = "...")]` gate that a dev-dependency would otherwise mask. Dev
+# targets are out of scope here anyway: smoke and every bench carry
+# `required-features`, so partial feature sets skip them rather than break.
 # Type-check every feature combination with cargo-hack (mirrors feature-powerset CI).
 hack: _lockfile
     cargo hack --feature-powerset --no-dev-deps check
