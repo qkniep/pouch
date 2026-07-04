@@ -305,8 +305,7 @@ Defaults are deliberately lean — `std` + `smallvec`, just enough for the bless
   reject duplicate keys**, and a bounded store that fills is a data error — so
   deserializing into a fixed-capacity collection is input validation for free.
 
-**MSRV:** Rust 1.78 (where `std`'s `slice::binary_search_by` became branchless, which
-the sorted lookups ride on).
+**MSRV:** Rust 1.87.
 
 ## `no_std`
 
