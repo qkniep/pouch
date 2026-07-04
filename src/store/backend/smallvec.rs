@@ -28,6 +28,9 @@ impl<A: Array> StoreMut for SmallVec<A> {
     fn clear(&mut self) {
         SmallVec::clear(self)
     }
+    fn reserve(&mut self, additional: usize) {
+        SmallVec::reserve(self, additional);
+    }
 }
 impl<A: Array> StoreNew for SmallVec<A> {
     fn new() -> Self {

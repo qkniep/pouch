@@ -153,12 +153,36 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     }
 }
 
+impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
+    /// Borrow the two backing stores, `(keys, values)` — the door to
+    /// backend-specific introspection (`spilled()`, allocated capacity, …), as
+    /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store
+    /// collections. Shared-ref only: `&mut` access could desync the columns or
+    /// smuggle in a duplicate key.
+    pub fn stores(&self) -> (&SK, &SV) {
+        (&self.keys, &self.values)
+    }
+    /// Consume the map and hand back its stores, `(keys, values)`, entries
+    /// intact and index-aligned — the inverse of
+    /// [`from_store`](Self::from_store).
+    pub fn into_stores(self) -> (SK, SV) {
+        (self.keys, self.values)
+    }
+}
+
 impl<SK: StoreMut, SV: StoreMut> UnsortedColumnMap<SK, SV> {
     /// Remove every entry, clearing both columns and keeping their allocated
     /// capacity. Needs no `Eq` bound — it only truncates the stores.
     pub fn clear(&mut self) {
         self.keys.clear();
         self.values.clear();
+    }
+    /// Pre-allocate both columns so at least `additional` more entries fit
+    /// without a reallocation — see
+    /// [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.keys.reserve(additional);
+        self.values.reserve(additional);
     }
 }
 

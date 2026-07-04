@@ -28,6 +28,9 @@ impl<T> StoreMut for Vec<T> {
     fn clear(&mut self) {
         Vec::clear(self)
     }
+    fn reserve(&mut self, additional: usize) {
+        Vec::reserve(self, additional);
+    }
 }
 impl<T> StoreNew for Vec<T> {
     fn new() -> Self {

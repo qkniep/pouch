@@ -81,6 +81,14 @@ impl<S: StoreMut> StoreMut for Capped<S> {
     fn clear(&mut self) {
         self.inner.clear()
     }
+
+    /// Forwards to the inner store, clamped to the remaining logical headroom
+    /// (`cap - len`) — space past the cap could never be filled, so reserving
+    /// it would be pure waste.
+    fn reserve(&mut self, additional: usize) {
+        let headroom = self.cap.saturating_sub(self.inner.len());
+        self.inner.reserve(additional.min(headroom));
+    }
 }
 
 // Capped is deliberately NOT `Unbounded`.
@@ -131,6 +139,20 @@ mod tests {
         let err = c.try_insert_at(2, 9).expect_err("at cap");
         assert_eq!(err.into_inner(), 9);
         assert_eq!(c.len(), 2); // rejected element did not land
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn reserve_is_clamped_to_the_logical_headroom() {
+        use alloc::vec::Vec;
+        // One element under cap 3: a huge request only reserves the headroom
+        // that could ever be filled.
+        let mut c: Capped<Vec<u8>> = Capped::with_capacity(3);
+        c.try_insert_at(0, 1).expect("room");
+        c.reserve(1000);
+        let inner = c.into_inner();
+        assert!(inner.capacity() >= 3);
+        assert!(inner.capacity() < 1000); // the clamp actually bit
     }
 
     // The trust-contract guard fires only in debug builds, so gate this on it.

@@ -74,6 +74,21 @@ pub trait StoreMut: Store {
     fn as_mut_slice(&mut self) -> &mut [Self::Elem];
 
     fn clear(&mut self);
+
+    /// Pre-allocate so at least `additional` more elements fit **without a
+    /// reallocation** — the tail-latency lever: pay the growth once up front
+    /// instead of as spikes mid-burst. The promise is about *reallocation*,
+    /// not logical capacity (that's [`capacity`](Store::capacity) /
+    /// [`CapacityError`]), so the default no-op is exactly right for stores
+    /// that never reallocate — fixed-capacity (`ArrayVec`, `heapless::Vec`)
+    /// and borrowed ([`ScratchVec`]) backends satisfy it
+    /// trivially. Growable backends (`Vec`, `SmallVec`, `TinyVec`) override
+    /// it with their native `reserve`; [`Capped`] clamps the request to its
+    /// remaining logical headroom; [`Spill`] pre-arms its spill
+    /// tier when the projected length overflows the inline tier.
+    fn reserve(&mut self, additional: usize) {
+        let _ = additional;
+    }
 }
 
 /// Construct an empty store. Kept separate from `Default` so that [`Capped`]
@@ -129,14 +144,18 @@ pub(crate) fn retain_in<S: StoreMut>(store: &mut S, mut f: impl FnMut(&mut S::El
 }
 
 /// Append every item from `iter` at the tail via [`push`] — the shared loop
-/// under the bulk collection builders (`try_from_iter`, `extend`, …). Stops at
-/// the first capacity failure, returning the rejected element; the items
-/// appended so far are kept.
+/// under the bulk collection builders (`try_from_iter`, `extend`, …). Consults
+/// the iterator's `size_hint` to [`reserve`](StoreMut::reserve) once up front,
+/// so a growable store pays one allocation instead of `log n` mid-append
+/// spikes. Stops at the first capacity failure, returning the rejected
+/// element; the items appended so far are kept.
 pub(crate) fn append_all<S, I>(store: &mut S, iter: I) -> Result<(), CapacityError<S::Elem>>
 where
     S: StoreMut,
     I: IntoIterator<Item = S::Elem>,
 {
+    let iter = iter.into_iter();
+    store.reserve(iter.size_hint().0);
     for value in iter {
         push(store, value)?;
     }

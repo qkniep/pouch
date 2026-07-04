@@ -92,6 +92,20 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     pub fn values(&self) -> &[SV::Elem] {
         self.values.as_slice()
     }
+    /// Borrow the two backing stores, `(keys, values)` — the door to
+    /// backend-specific introspection (`spilled()`, allocated capacity, …), as
+    /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store
+    /// collections. Shared-ref only: `&mut` access could desync the columns or
+    /// unsort the keys.
+    pub fn stores(&self) -> (&SK, &SV) {
+        (&self.keys, &self.values)
+    }
+    /// Consume the map and hand back its stores, `(keys, values)`, entries
+    /// intact, index-aligned, and still in ascending key order — the inverse
+    /// of [`from_store`](Self::from_store).
+    pub fn into_stores(self) -> (SK, SV) {
+        (self.keys, self.values)
+    }
 }
 
 impl<SK: StoreMut, SV: StoreMut> SortedColumnMap<SK, SV> {
@@ -100,6 +114,13 @@ impl<SK: StoreMut, SV: StoreMut> SortedColumnMap<SK, SV> {
     pub fn clear(&mut self) {
         self.keys.clear();
         self.values.clear();
+    }
+    /// Pre-allocate both columns so at least `additional` more entries fit
+    /// without a reallocation — see
+    /// [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.keys.reserve(additional);
+        self.values.reserve(additional);
     }
 }
 

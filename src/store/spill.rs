@@ -150,6 +150,25 @@ where
         self.spill.clear();
         self.spilled = false;
     }
+
+    /// Pre-arm the tier the elements will live in. Once spilled, forwards to
+    /// the spill tier. Before that, if the projected length (`len +
+    /// additional`) still fits the inline tier there is nothing to do; if it
+    /// doesn't, migration is coming — so reserve the *spill* tier for the
+    /// whole projected population now, and the spill boundary itself
+    /// allocates nothing when it hits.
+    fn reserve(&mut self, additional: usize) {
+        if self.spilled {
+            self.spill.reserve(additional);
+        } else if let Some(cap) = self.inline.capacity() {
+            let projected = self.inline.len() + additional;
+            if projected > cap {
+                // Pre-spill the spill tier is empty (elements live in exactly
+                // one tier), so `projected` more elements is the full need.
+                self.spill.reserve(projected);
+            }
+        }
+    }
 }
 
 impl<A: StoreNew, B: StoreNew<Elem = A::Elem>> StoreNew for Spill<A, B> {
@@ -251,6 +270,42 @@ mod tests {
         push(&mut s, 9).expect("room");
         assert!(!s.is_spilled()); // and the inline tier is live again
         assert_eq!(s.as_slice(), &[9]);
+    }
+
+    // `reserve` pre-arms the tier the elements will live in: a projected
+    // length that overflows the inline tier reserves the (empty) spill tier
+    // for the whole population, so the later migration allocates nothing.
+    #[cfg(all(feature = "arrayvec", feature = "alloc"))]
+    #[test]
+    fn reserve_pre_arms_the_spill_tier() {
+        use alloc::vec::Vec;
+
+        use arrayvec::ArrayVec;
+
+        let mut s: Spill<ArrayVec<u32, 4>, Vec<u32>> = StoreNew::new();
+        push(&mut s, 1).expect("room");
+
+        // Projected length fits inline: nothing reserved anywhere.
+        s.reserve(2);
+        assert_eq!(s.spill.capacity(), 0);
+
+        // Projected length (1 + 10) overflows the inline 4: the spill tier is
+        // reserved for the whole projected population up front...
+        s.reserve(10);
+        assert!(!s.is_spilled()); // ...without spilling yet
+        assert!(s.spill.capacity() >= 11);
+        let armed = s.spill.capacity();
+
+        // ...so the migration and the growth burst reallocate nothing.
+        for x in 2..=11 {
+            push(&mut s, x).expect("unbounded via Vec");
+        }
+        assert!(s.is_spilled());
+        assert_eq!(s.spill.capacity(), armed);
+
+        // Once spilled, reserve forwards to the spill tier directly.
+        s.reserve(1000);
+        assert!(s.spill.capacity() >= 1011);
     }
 
     // The smallvec-by-composition shape: inline ArrayVec spilling to an unbounded

@@ -35,6 +35,9 @@ where
     fn clear(&mut self) {
         TinyVec::clear(self)
     }
+    fn reserve(&mut self, additional: usize) {
+        TinyVec::reserve(self, additional);
+    }
 }
 impl<A: Array> StoreNew for TinyVec<A>
 where
