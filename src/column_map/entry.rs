@@ -260,6 +260,11 @@ where
     ///
     /// Returns [`CapacityError`] carrying the rejected `(key, value)` only when the
     /// columns' combined cap is hit.
+    // The two `expect`s below assert the capacity invariant pre-checked at the top of
+    // this function, so they are unreachable — there is no user-visible panic to
+    // document. clippy can't see through the pre-check; `expect` self-clears the lint
+    // if the pattern ever changes.
+    #[expect(clippy::missing_panics_doc)]
     pub fn try_insert(self, value: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         let VacantColumnEntry {
             keys,
