@@ -7,11 +7,12 @@
 [![CI](https://github.com/qkniep/pouch/actions/workflows/rust.yml/badge.svg)](https://github.com/qkniep/pouch/actions/workflows/rust.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Small, fast sets and maps for Rust, built for the case most collection crates
-ignore: **many small collections nested in a larger structure** — a `Vec` of
-adjacency lists, inverted-index postings, per-key buckets, quorum / vote / share
-sets. The default `Set` / `Map` keep their elements **inline**, so a population of
-thousands of small sets costs roughly *one* heap allocation instead of one per set.
+Allocation-avoiding flat sets and maps for Rust, built for the case most
+collection crates ignore: **many small collections nested in a larger structure**
+— a `Vec` of adjacency lists, inverted-index postings, per-key buckets, quorum /
+vote / share sets. The default `Set` / `Map` keep their elements **inline** until
+they outgrow `N`, so a population of thousands of small sets costs roughly *one*
+heap allocation instead of one per set.
 
 > On a `Vec` of 10 000 heavy-tailed small sets, the inline default builds in **105
 > allocations** where `Vec<HashSet>` / `Vec<BTreeSet>` take 10 000–18 000 — **~95×

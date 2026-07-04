@@ -4,10 +4,10 @@ version = "0.0.0"
 authors = ["Quentin Kniep <hello@quentinkniep.com>"]
 edition = "2021"
 rust-version = "1.87"
-description = "Small, fast, backend-generic sets and maps for no_std (Vec, SmallVec, TinyVec, ArrayVec, heapless), with optional capacity bounds"
+description = "Allocation-avoiding flat sets and maps that keep small collections inline (no heap until they outgrow N) — backend-generic (Vec, SmallVec, TinyVec, ArrayVec, heapless), with optional capacity bounds; no_std-ready"
 repository = "https://github.com/qkniep/pouch"
 license = "MIT OR Apache-2.0"
-keywords = ["set", "map", "no-std", "collections", "embedded"]
+keywords = ["set", "map", "smallvec", "collections", "no-std"]
 categories = ["data-structures", "no-std", "embedded"]
 # Benches are listed explicitly below; disabling auto-discovery keeps the shared
 # `benches/common.rs` helper module from being picked up as its own bench target.
