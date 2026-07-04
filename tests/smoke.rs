@@ -1,3 +1,6 @@
+//! Integration smoke tests — exercise every backend end-to-end through the
+//! public API (this target's `required-features` covers the full set).
+
 use pouch::*;
 
 #[test]

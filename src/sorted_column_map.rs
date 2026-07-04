@@ -62,6 +62,7 @@ pub struct SortedColumnMap<SK, SV> {
 }
 
 impl<SK: StoreNew, SV: StoreNew> SortedColumnMap<SK, SV> {
+    /// Creates an empty `SortedColumnMap`.
     pub fn new() -> Self {
         SortedColumnMap {
             keys: SK::new(),
@@ -77,9 +78,11 @@ impl<SK: StoreNew, SV: StoreNew> Default for SortedColumnMap<SK, SV> {
 }
 
 impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
+    /// Returns the number of entries.
     pub fn len(&self) -> usize {
         self.keys.len()
     }
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -178,10 +181,12 @@ where
     // No E0311 lifetime dance here (unlike `SortedMap::get`): `values.as_slice()`
     // is already `&[V]`, so projecting `&V` needs no associated-type-projection
     // bound — elision ties the result to `&self`.
-    //
-    // `key` may be any borrowed form of `K` (a `String`-keyed column map answers
-    // `get("k")` without allocating), with the usual `Borrow` contract that the
-    // borrowed form's `Ord` agrees with `K`'s.
+    /// Returns a reference to the value corresponding to `key`, or `None` if
+    /// absent. `O(log n)` binary search over the dense key column.
+    ///
+    /// `key` may be any borrowed form of `K` (a `String`-keyed column map answers
+    /// `get("k")` without allocating), with the usual [`Borrow`] contract that the
+    /// borrowed form's `Ord` agrees with `K`'s.
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,

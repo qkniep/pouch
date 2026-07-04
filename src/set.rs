@@ -113,6 +113,7 @@ pub struct SortedSet<S> {
 }
 
 impl<S: StoreNew> SortedSet<S> {
+    /// Creates an empty `SortedSet`.
     pub fn new() -> Self {
         SortedSet { store: S::new() }
     }
@@ -169,15 +170,19 @@ impl<S: Store> SortedSet<S> {
     pub fn into_store(self) -> S {
         self.store
     }
+    /// Returns the number of elements.
     pub fn len(&self) -> usize {
         self.store.len()
     }
+    /// Returns `true` if the set contains no elements.
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
+    /// Returns the logical capacity, or `None` if unbounded.
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
+    /// Returns the elements as a contiguous slice, in ascending order.
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -583,6 +588,7 @@ pub struct UnsortedSet<S> {
 }
 
 impl<S: StoreNew> UnsortedSet<S> {
+    /// Creates an empty `UnsortedSet`.
     pub fn new() -> Self {
         UnsortedSet { store: S::new() }
     }
@@ -624,15 +630,19 @@ impl<S: Store> UnsortedSet<S> {
     pub fn into_store(self) -> S {
         self.store
     }
+    /// Returns the number of elements.
     pub fn len(&self) -> usize {
         self.store.len()
     }
+    /// Returns `true` if the set contains no elements.
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
+    /// Returns the logical capacity, or `None` if unbounded.
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
+    /// Returns the elements as a contiguous slice, in no particular order.
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }

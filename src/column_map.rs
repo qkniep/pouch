@@ -115,6 +115,7 @@ pub struct UnsortedColumnMap<SK, SV> {
 }
 
 impl<SK: StoreNew, SV: StoreNew> UnsortedColumnMap<SK, SV> {
+    /// Creates an empty `UnsortedColumnMap`.
     pub fn new() -> Self {
         UnsortedColumnMap {
             keys: SK::new(),
@@ -130,9 +131,11 @@ impl<SK: StoreNew, SV: StoreNew> Default for UnsortedColumnMap<SK, SV> {
 }
 
 impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
+    /// Returns the number of entries.
     pub fn len(&self) -> usize {
         self.keys.len()
     }
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -232,10 +235,12 @@ where
     // No E0311 lifetime dance here (unlike `UnsortedMap::get`): `values.as_slice()`
     // is already `&[V]`, so projecting `&V` needs no associated-type-projection
     // bound — elision ties the result to `&self`.
-    //
-    // `key` may be any borrowed form of `K` (a `String`-keyed column map answers
-    // `get("k")` without allocating), with the usual `Borrow` contract that the
-    // borrowed form's `Eq` agrees with `K`'s.
+    /// Returns a reference to the value corresponding to `key`, or `None` if
+    /// absent. `O(n)` scan over the dense key column.
+    ///
+    /// `key` may be any borrowed form of `K` (a `String`-keyed column map answers
+    /// `get("k")` without allocating), with the usual [`Borrow`] contract that the
+    /// borrowed form's `Eq` agrees with `K`'s.
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,

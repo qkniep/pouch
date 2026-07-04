@@ -36,6 +36,7 @@ pub struct Bag<S> {
 }
 
 impl<S: StoreNew> Bag<S> {
+    /// Creates an empty `Bag`.
     pub fn new() -> Self {
         Bag { store: S::new() }
     }
@@ -65,15 +66,19 @@ impl<S: Store> Bag<S> {
     pub fn into_store(self) -> S {
         self.store
     }
+    /// Returns the number of elements.
     pub fn len(&self) -> usize {
         self.store.len()
     }
+    /// Returns `true` if the bag contains no elements.
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
+    /// Returns the logical capacity, or `None` if unbounded.
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
+    /// Returns the elements as a contiguous slice, in insertion order.
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
