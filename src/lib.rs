@@ -1,14 +1,20 @@
-//! `pouch` — sets and maps whose memory strategy is a type parameter.
+//! `pouch` — allocation-avoiding flat sets and maps for small collections:
+//! the default [`Set`] / [`Map`] keep their elements **inline** until they
+//! outgrow `N`, so many small collections nested in a larger structure
+//! (adjacency lists, per-key buckets, `Vec<Set<_>>`) cost about one heap
+//! allocation instead of one each.
 //!
-//! Write against one collection API and choose *where the elements live* by
-//! naming the backing store: heap (`Vec`), inline (`SmallVec`, `TinyVec`,
-//! `ArrayVec`, `heapless::Vec`), borrowed (`&[T]`, [`ScratchVec`]), or a
-//! composition ([`Capped`] adds a runtime bound to any store, [`Spill`] chains
-//! two tiers). `no_std`-first, `#![forbid(unsafe_code)]`, and honest about
-//! capacity: on a bounded store every insert is fallible and hands the rejected
-//! element back ([`CapacityError`]), while the [`Unbounded`] marker is what
-//! unlocks the infallible `insert` — the type system remembers which stores can
-//! fail.
+//! Under the hood the memory strategy is a type parameter: write against one
+//! collection API and choose *where the elements live* by naming the backing
+//! store: heap (`Vec`), inline (`SmallVec`, `TinyVec`, `ArrayVec`,
+//! `heapless::Vec`), borrowed (`&[T]`, [`ScratchVec`]), or a composition
+//! ([`Capped`] adds a runtime bound to any store, [`Spill`] chains two tiers).
+//! The crate is honest about capacity — on a bounded store every insert is
+//! fallible and hands the rejected element back ([`CapacityError`]), while the
+//! [`Unbounded`] marker is what unlocks the infallible `insert`; the type
+//! system remembers which stores can fail. And none of the core needs an
+//! allocator: the crate is `#![no_std]`-first and `#![forbid(unsafe_code)]`,
+//! so the fixed-cap and borrowed backends run unchanged on embedded targets.
 //!
 //! Three orthogonal axes are separated deliberately, one per layer:
 //!   * **storage**  — where elements live (heap / inline / hybrid / borrowed): the
