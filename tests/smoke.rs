@@ -269,3 +269,43 @@ fn borrowed_key_lookups_across_the_surface() {
     *scm.get_mut("k").unwrap() += 1;
     assert_eq!(scm.remove("k"), Some(8));
 }
+
+#[test]
+fn store_access_and_reserve_across_the_surface() {
+    // `store()` reaches backend introspection the collection API doesn't
+    // abstract: SmallVec's `spilled()` through the blessed alias...
+    let mut s: Set<u32, 2> = Set::new();
+    s.insert(1);
+    s.insert(2);
+    assert!(!s.store().spilled());
+    s.insert(3);
+    assert!(s.store().spilled());
+
+    // ...and `Spill::is_spilled` through a SortedSet.
+    let mut sp: SortedSet<Spill<arrayvec::ArrayVec<u32, 2>, Vec<u32>>> = SortedSet::new();
+    sp.insert(1);
+    assert!(!sp.store().is_spilled());
+    sp.insert(2);
+    sp.insert(3);
+    assert!(sp.store().is_spilled());
+
+    // `reserve` pays growth up front; observable via the store's inherent
+    // (allocated) capacity. `into_store` recovers the buffer, still sorted.
+    let mut m: Map<u32, u32> = Map::default();
+    m.reserve(100);
+    let vec_cap = m.store().capacity();
+    assert!(vec_cap >= 100);
+    for x in 0..50 {
+        m.insert(x, x);
+    }
+    assert_eq!(m.store().capacity(), vec_cap); // no growth during the burst
+
+    // Column maps: two length-locked stores, borrowed and recovered as a pair.
+    let mut cm: UnsortedColumnMap<Vec<u32>, Vec<u32>> = UnsortedColumnMap::new();
+    cm.reserve(10);
+    cm.try_insert(1, 10).unwrap();
+    let (ks, vs) = cm.stores();
+    assert!(ks.capacity() >= 10 && vs.capacity() >= 10);
+    let (ks, vs) = cm.into_stores();
+    assert_eq!((ks.as_slice(), vs.as_slice()), (&[1][..], &[10][..]));
+}

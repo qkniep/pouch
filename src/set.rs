@@ -132,6 +132,32 @@ impl<S: Store> SortedSet<S> {
         );
         SortedSet { store }
     }
+    /// Borrow the backing store — the door to backend-specific introspection
+    /// the collection API doesn't abstract: `spilled()` on a `SmallVec`,
+    /// [`is_spilled`](crate::Spill::is_spilled) on a [`Spill`](crate::Spill),
+    /// a backend's inherent `capacity()` for *allocated* (not logical)
+    /// capacity. Shared-ref only: `&mut` access could break the
+    /// sorted-and-deduplicated invariant that
+    /// [`from_store`](Self::from_store) trusts.
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let mut s: Set<u32, 2> = Set::default();
+    /// s.insert(1);
+    /// s.insert(2);
+    /// assert!(!s.store().spilled()); // still inline
+    /// s.insert(3);
+    /// assert!(s.store().spilled()); // outgrew N = 2 — now on the heap
+    /// ```
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    /// Consume the set and hand back its store, elements intact and still in
+    /// ascending order — the inverse of [`from_store`](Self::from_store), for
+    /// reusing the buffer or handing a sorted `Vec` to an API that wants one.
+    pub fn into_store(self) -> S {
+        self.store
+    }
     pub fn len(&self) -> usize {
         self.store.len()
     }
@@ -205,6 +231,25 @@ impl<S: StoreMut> SortedSet<S> {
     /// no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Pre-allocate so at least `additional` more elements fit without a
+    /// reallocation — pay the growth once up front instead of as spikes
+    /// mid-burst ([`StoreMut::reserve`]).
+    /// Stores that never reallocate (fixed-capacity, borrowed) have nothing to
+    /// do; a [`Spill`](crate::Spill) pre-arms its spill tier so even the
+    /// migration allocates nothing. To *start* with capacity, wrap a pre-sized
+    /// store instead: `SortedSet::from_store(Vec::with_capacity(n))`.
+    ///
+    /// ```
+    /// use pouch::SortedSet;
+    /// let mut s: SortedSet<Vec<u64>> = SortedSet::new();
+    /// s.reserve(1_000); // one allocation now, none during the burst
+    /// for x in 0..1_000 {
+    ///     s.insert(x);
+    /// }
+    /// ```
+    pub fn reserve(&mut self, additional: usize) {
+        self.store.reserve(additional);
     }
     /// Keep only the elements for which `f` returns `true`, preserving order.
     /// `O(n)`, and needs no `Ord` bound — dropping elements can't unsort the rest.
@@ -308,6 +353,8 @@ where
         I: IntoIterator<Item = S::Elem>,
     {
         let mut store = S::new();
+        let iter = iter.into_iter();
+        store.reserve(iter.size_hint().0);
         for value in iter {
             if let Some(prev) = store.as_slice().last() {
                 if value < *prev {
@@ -462,6 +509,18 @@ impl<S: Store> UnsortedSet<S> {
         );
         UnsortedSet { store }
     }
+    /// Borrow the backing store, for backend-specific introspection
+    /// (`spilled()`, allocated capacity, …) — see
+    /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
+    /// access could smuggle in a duplicate, breaking the set invariant.
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    /// Consume the set and hand back its store, elements intact (in no
+    /// particular order) — the inverse of [`from_store`](Self::from_store).
+    pub fn into_store(self) -> S {
+        self.store
+    }
     pub fn len(&self) -> usize {
         self.store.len()
     }
@@ -496,6 +555,11 @@ impl<S: StoreMut> UnsortedSet<S> {
     /// no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Pre-allocate so at least `additional` more elements fit without a
+    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.store.reserve(additional);
     }
     /// Keep only the elements for which `f` returns `true`. `O(n)`; needs no
     /// `Eq` bound.
@@ -745,6 +809,26 @@ mod alloc_tests {
         let empty: SortedSet<Vec<i32>> = SortedSet::new();
         assert_eq!(empty.first(), None);
         assert_eq!(empty.range::<i32, _>(..), &[] as &[i32]);
+    }
+
+    // `store`/`into_store` round-trip with `from_store`, and `reserve` is
+    // observable through `store()` via `Vec`'s *inherent* (allocated) capacity.
+    #[test]
+    fn store_access_and_reserve() {
+        let mut set: SortedSet<Vec<i32>> = SortedSet::new();
+        assert_eq!(set.store().capacity(), 0); // Vec's own capacity: allocated
+        set.reserve(100);
+        assert!(set.store().capacity() >= 100); // one allocation, up front
+        let before = set.store().capacity();
+        set.extend([3, 1, 2]);
+        assert_eq!(set.store().capacity(), before); // burst caused no growth
+
+        // into_store hands back the sorted, deduplicated Vec; from_store
+        // round-trips it.
+        let v: Vec<i32> = set.into_store();
+        assert_eq!(v, &[1, 2, 3]);
+        let set2: SortedSet<Vec<i32>> = SortedSet::from_store(v);
+        assert!(set2.contains(&2));
     }
 
     // The on-mission `Borrow` payoff: `String` elements, `&str` queries — no

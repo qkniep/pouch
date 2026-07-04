@@ -60,6 +60,19 @@ impl<S: Store> SortedMap<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
+    /// Borrow the backing store, for backend-specific introspection
+    /// (`spilled()`, allocated capacity, …) — see
+    /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
+    /// access could break the sorted-by-key invariant that
+    /// [`from_store`](Self::from_store) trusts.
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    /// Consume the map and hand back its store, entries intact and still in
+    /// ascending key order — the inverse of [`from_store`](Self::from_store).
+    pub fn into_store(self) -> S {
+        self.store
+    }
 }
 
 impl<S: StoreMut> SortedMap<S> {
@@ -67,6 +80,11 @@ impl<S: StoreMut> SortedMap<S> {
     /// no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Pre-allocate so at least `additional` more entries fit without a
+    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.store.reserve(additional);
     }
 }
 
@@ -380,6 +398,8 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut store = S::new();
+        let iter = iter.into_iter();
+        store.reserve(iter.size_hint().0);
         for entry in iter {
             if let Some((prev_key, _)) = store.as_slice().last() {
                 if entry.0 < *prev_key {
@@ -527,6 +547,18 @@ impl<S: Store> UnsortedMap<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
+    /// Borrow the backing store, for backend-specific introspection
+    /// (`spilled()`, allocated capacity, …) — see
+    /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
+    /// access could smuggle in a duplicate key, breaking the map invariant.
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    /// Consume the map and hand back its store, entries intact (in no
+    /// particular order) — the inverse of [`from_store`](Self::from_store).
+    pub fn into_store(self) -> S {
+        self.store
+    }
 }
 
 impl<S: StoreMut> UnsortedMap<S> {
@@ -534,6 +566,11 @@ impl<S: StoreMut> UnsortedMap<S> {
     /// no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Pre-allocate so at least `additional` more entries fit without a
+    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.store.reserve(additional);
     }
 }
 

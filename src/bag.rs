@@ -54,6 +54,17 @@ impl<S: Store> Bag<S> {
     pub fn from_store(store: S) -> Self {
         Bag { store }
     }
+    /// Borrow the backing store, for backend-specific introspection
+    /// (`spilled()`, allocated capacity, …) — see
+    /// [`SortedSet::store`](crate::SortedSet::store).
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    /// Consume the bag and hand back its store, elements intact and in
+    /// insertion order — the inverse of [`from_store`](Self::from_store).
+    pub fn into_store(self) -> S {
+        self.store
+    }
     pub fn len(&self) -> usize {
         self.store.len()
     }
@@ -125,6 +136,12 @@ impl<S: StoreMut> Bag<S> {
     /// Remove every element, keeping the backing store's allocated capacity.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+
+    /// Pre-allocate so at least `additional` more elements fit without a
+    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.store.reserve(additional);
     }
 
     /// Append at the tail. `O(1)`. Errors with the rejected element iff a bounded
