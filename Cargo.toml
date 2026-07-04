@@ -3,10 +3,7 @@ name = "pouch"
 version = "0.0.0"
 authors = ["Quentin Kniep <hello@quentinkniep.com>"]
 edition = "2021"
-# 1.78 is where std's `slice::binary_search_by` gained the cmov-based branchless
-# bisection (1.75 still mispredicts the data-dependent branch every probe), which
-# the sorted collections' lookups ride on. Don't lower without re-benching.
-rust-version = "1.78"
+rust-version = "1.87"
 description = "Small, fast, backend-generic sets and maps for no_std (Vec, SmallVec, TinyVec, ArrayVec, heapless), with optional capacity bounds"
 repository = "https://github.com/qkniep/pouch"
 license = "MIT OR Apache-2.0"
