@@ -106,6 +106,7 @@ pub struct SortedMap<S> {
 }
 
 impl<S: StoreNew> SortedMap<S> {
+    /// Creates an empty `SortedMap`.
     pub fn new() -> Self {
         SortedMap { store: S::new() }
     }
@@ -118,12 +119,15 @@ impl<S: StoreNew> Default for SortedMap<S> {
 }
 
 impl<S: Store> SortedMap<S> {
+    /// Returns the number of entries.
     pub fn len(&self) -> usize {
         self.store.len()
     }
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
+    /// Returns the logical capacity, or `None` if unbounded.
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
@@ -288,10 +292,12 @@ where
     // NOTE: returning `&V` derived from the projected `Elem = (K, V)` slice needs
     // an explicit `K/V: 'a` bound — rustc does not infer implied bounds through the
     // associated-type projection (E0311). Worth knowing when you build out the API.
-    //
-    // `key` may be any borrowed form of `K` — a `SortedMap<Vec<(String, V)>>`
-    // answers `get("k")` without allocating a `String` to ask — with the usual
-    // `Borrow` contract that the borrowed form's `Ord` agrees with `K`'s.
+    /// Returns a reference to the value corresponding to `key`, or `None` if
+    /// absent. `O(log n)`.
+    ///
+    /// `key` may be any borrowed form of `K` — a `SortedMap<Vec<(String, V)>>`
+    /// answers `get("k")` without allocating a `String` to ask — with the usual
+    /// [`Borrow`] contract that the borrowed form's `Ord` agrees with `K`'s.
     pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
         K: Borrow<Q> + 'a,
@@ -594,6 +600,7 @@ pub struct UnsortedMap<S> {
 }
 
 impl<S: StoreNew> UnsortedMap<S> {
+    /// Creates an empty `UnsortedMap`.
     pub fn new() -> Self {
         UnsortedMap { store: S::new() }
     }
@@ -606,12 +613,15 @@ impl<S: StoreNew> Default for UnsortedMap<S> {
 }
 
 impl<S: Store> UnsortedMap<S> {
+    /// Returns the number of entries.
     pub fn len(&self) -> usize {
         self.store.len()
     }
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
+    /// Returns the logical capacity, or `None` if unbounded.
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
@@ -752,6 +762,9 @@ where
             .position(|(k, _)| k.borrow() == key)
     }
 
+    /// Returns a reference to the value corresponding to `key`, or `None` if
+    /// absent. `O(n)` linear scan.
+    ///
     /// `key` may be any borrowed form of `K` — an
     /// `UnsortedMap<Vec<(String, V)>>` answers `get("k")` without allocating a
     /// `String` to ask — with the usual [`Borrow`] contract that the borrowed

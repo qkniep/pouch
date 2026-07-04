@@ -54,16 +54,20 @@ impl<S> Capped<S> {
         Capped { inner, cap }
     }
 
+    /// Returns the runtime cap set at construction — the raw limit, before it is
+    /// intersected with the inner store's own bound.
     pub fn cap(&self) -> usize {
         self.cap
     }
 
+    /// Consumes the wrapper and returns the inner store, dropping the cap.
     pub fn into_inner(self) -> S {
         self.inner
     }
 }
 
 impl<S: StoreNew> Capped<S> {
+    /// Creates an empty capped store with the given cap.
     pub fn with_capacity(cap: usize) -> Self {
         Capped {
             inner: S::new(),

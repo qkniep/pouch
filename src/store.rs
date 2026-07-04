@@ -24,14 +24,22 @@ pub use spill::Spill;
 /// type has exactly one element type, and this keeps constructors free of an
 /// unconstrained `T`. A set stores `Elem = T`; a map stores `Elem = (K, V)`.
 pub trait Store {
+    /// The element type held by the store — `T` for a set, `(K, V)` for a map.
     type Elem;
 
+    /// Returns every logical element as one contiguous slice, in stored order.
+    ///
+    /// A store's `Eq`, `Ord`, and `Hash` (where implemented) must agree with this
+    /// slice: the sorted collections derive those traits and rely on structural
+    /// equality matching `as_slice()`.
     fn as_slice(&self) -> &[Self::Elem];
 
+    /// Returns the number of logical elements. Defaults to `self.as_slice().len()`.
     fn len(&self) -> usize {
         self.as_slice().len()
     }
 
+    /// Returns `true` if the store holds no elements.
     fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
     }
@@ -73,6 +81,7 @@ pub trait StoreMut: Store {
     /// which consumes no capacity).
     fn as_mut_slice(&mut self) -> &mut [Self::Elem];
 
+    /// Removes every element, keeping any allocated capacity.
     fn clear(&mut self);
 
     /// Pre-allocates so at least `additional` more elements fit **without a
@@ -95,6 +104,7 @@ pub trait StoreMut: Store {
 /// (which needs a runtime cap) is excluded; use `Capped::with_capacity` /
 /// `from_store` for bounded wrappers.
 pub trait StoreNew: Store + Sized {
+    /// Creates a new, empty store.
     fn new() -> Self;
 }
 
