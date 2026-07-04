@@ -73,6 +73,8 @@ mod bag;
 mod column_map;
 mod error;
 mod map;
+#[cfg(feature = "serde")]
+mod serde_impls;
 mod set;
 #[cfg(feature = "soa")]
 mod sorted_column_map;

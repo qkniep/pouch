@@ -50,12 +50,16 @@ heapless = ["dep:heapless"]
 # specialist layout for large values / miss-heavy scans, kept out of the
 # default surface. Backend-agnostic, so it enables no dependency.
 soa = []
+# Serialize/Deserialize for every collection (`src/serde_impls.rs`). `no_std`
+# (serde with default-features off), implies no backend.
+serde = ["dep:serde"]
 
 [dependencies]
 smallvec = { version = "1", default-features = false, features = ["const_generics"], optional = true }
 tinyvec  = { version = "1", default-features = false, features = ["alloc"], optional = true }
 arrayvec = { version = "0.7", default-features = false, optional = true }
 heapless = { version = "0.9", default-features = false, optional = true }
+serde    = { version = "1", default-features = false, optional = true }
 
 # Benchmarks only. `divan` is the harness; the rest are comparison targets.
 # Growable: `litemap` (flat sorted-Vec map, the same shape as `SortedMap`),
@@ -64,6 +68,7 @@ heapless = { version = "0.9", default-features = false, optional = true }
 # Fixed-cap / no_std: `micromap` and `heapless::LinearMap` (already a backend dep).
 [dev-dependencies]
 divan = "0.1"
+serde_test = "1"
 litemap = "0.8"
 vecmap-rs = "0.2"
 sorted-vec = "0.8"
