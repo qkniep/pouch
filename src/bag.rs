@@ -17,7 +17,10 @@
 //! unconstrained `FromIterator`. The `Eq`-gated [`contains`](Bag::contains) /
 //! [`count`](Bag::count) add multiset queries without constraining the core.
 
+use core::borrow::Borrow;
+
 use crate::error::CapacityError;
+use crate::set::chunked_contains;
 use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
 
 /// A sequence of values with duplicates allowed and no ordering or uniqueness
@@ -72,19 +75,30 @@ impl<S: Store> Bag<S> {
         self.store.as_slice().get(i)
     }
     /// Whether any element equals `value`. `O(n)` linear scan; gated on `Eq` so the
-    /// rest of the bag stays bound-free.
-    pub fn contains(&self, value: &S::Elem) -> bool
+    /// rest of the bag stays bound-free. `value` may be any borrowed form of the
+    /// element type (a `String` bag answers `contains("x")` without allocating),
+    /// with the usual [`Borrow`] contract that the borrowed form's `Eq` agrees
+    /// with the element type's.
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
-        S::Elem: Eq,
+        S::Elem: Borrow<Q> + Eq,
+        Q: Eq + ?Sized,
     {
-        self.store.as_slice().contains(value)
+        chunked_contains(self.store.as_slice(), value)
     }
     /// How many elements equal `value` — the multiset multiplicity. `O(n)`.
-    pub fn count(&self, value: &S::Elem) -> usize
+    /// `value` may be any borrowed form of the element type, like
+    /// [`contains`](Self::contains).
+    pub fn count<Q>(&self, value: &Q) -> usize
     where
-        S::Elem: Eq,
+        S::Elem: Borrow<Q> + Eq,
+        Q: Eq + ?Sized,
     {
-        self.store.as_slice().iter().filter(|e| *e == value).count()
+        self.store
+            .as_slice()
+            .iter()
+            .filter(|e| (*e).borrow() == value)
+            .count()
     }
 }
 

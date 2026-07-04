@@ -4,6 +4,7 @@
 //! [`UnsortedMap`] appends and swap-removes (`O(1)` mutation, `O(n)` search) and
 //! needs only `K: Eq` rather than `K: Ord`.
 
+use core::borrow::Borrow;
 use core::ops::RangeBounds;
 
 use crate::error::{BuildError, CapacityError};
@@ -179,38 +180,67 @@ where
         SortedMap { store }
     }
 
+    /// Binary search the store by key. `Ok(i)` is the index of the matching
+    /// entry; `Err(i)` the insertion point that keeps the keys sorted. Every
+    /// key lookup — `get`, `contains_key`, `try_insert`, `remove`, `entry` —
+    /// routes through this one search, so they can never disagree on which
+    /// entry is "the one for this key" (and the `Borrow`-keyed match lands in
+    /// exactly one place).
+    fn search<Q>(&self, key: &Q) -> Result<usize, usize>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.store
+            .as_slice()
+            .binary_search_by(|(k, _)| k.borrow().cmp(key))
+    }
+
     // NOTE: returning `&V` derived from the projected `Elem = (K, V)` slice needs
     // an explicit `K/V: 'a` bound — rustc does not infer implied bounds through the
     // associated-type projection (E0311). Worth knowing when you build out the API.
-    pub fn get<'a>(&'a self, key: &K) -> Option<&'a V>
+    //
+    // `key` may be any borrowed form of `K` — a `SortedMap<Vec<(String, V)>>`
+    // answers `get("k")` without allocating a `String` to ask — with the usual
+    // `Borrow` contract that the borrowed form's `Ord` agrees with `K`'s.
+    pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
-        K: 'a,
+        K: Borrow<Q> + 'a,
+        Q: Ord + ?Sized,
         V: 'a,
     {
-        let s = self.store.as_slice();
-        s.binary_search_by(|(k, _)| k.cmp(key))
-            .ok()
-            .map(|i| &s[i].1)
+        let i = self.search(key).ok()?;
+        Some(&self.store.as_slice()[i].1)
     }
 
     /// Whether `key` is present. `O(log n)` — like [`get`](Self::get) but yields a
-    /// yes/no answer, so it needs no value lifetime.
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.store
-            .as_slice()
-            .binary_search_by(|(k, _)| k.cmp(key))
-            .is_ok()
+    /// yes/no answer, so it needs no value lifetime. `key` may be any borrowed
+    /// form of `K`.
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.search(key).is_ok()
     }
 
     /// The entries whose keys fall within `range`, as a subslice of the sorted
     /// store — the sorted layout's native range query. Two `O(log n)` bound
-    /// searches, zero copies.
+    /// searches, zero copies. The bounds may be any borrowed form of `K`, like
+    /// [`get`](Self::get); as with `BTreeMap::range`, an **unsized** form
+    /// (`str`, `[u8]`) needs the explicit tuple-of-`Bound`s shape:
+    /// `map.range::<str, _>((Bound::Included("a"), Bound::Excluded("m")))`.
     ///
     /// # Panics
     ///
     /// Panics if the range's start is greater than its end.
-    pub fn range<R: RangeBounds<K>>(&self, range: R) -> &[(K, V)] {
-        subrange(self.store.as_slice(), range, |(k, _)| k)
+    pub fn range<Q, R>(&self, range: R) -> &[(K, V)]
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+        R: RangeBounds<Q>,
+    {
+        subrange(self.store.as_slice(), range, |(k, _)| k.borrow())
     }
 }
 
@@ -221,24 +251,22 @@ where
 {
     /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
     /// update without the [`entry`](Self::entry) ceremony. Carries the same
-    /// explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311 quirk).
-    pub fn get_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>
+    /// explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311 quirk), and
+    /// takes any borrowed form of `K` the same way.
+    pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
-        K: 'a,
+        K: Borrow<Q> + 'a,
+        Q: Ord + ?Sized,
         V: 'a,
     {
-        let i = self
-            .store
-            .as_slice()
-            .binary_search_by(|(k, _)| k.cmp(key))
-            .ok()?;
+        let i = self.search(key).ok()?;
         Some(&mut self.store.as_mut_slice()[i].1)
     }
 
     /// Insert or replace. Replacing an existing key consumes no capacity and so
     /// can never fail — only a genuinely new key at the bound errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
-        match self.store.as_slice().binary_search_by(|(k, _)| k.cmp(&key)) {
+        match self.search(&key) {
             Ok(i) => {
                 let slot = &mut self.store.as_mut_slice()[i].1;
                 Ok(Some(core::mem::replace(slot, value)))
@@ -248,9 +276,14 @@ where
     }
 
     /// Remove the entry for `key`, returning its value. Order-preserving shift:
-    /// `O(log n)` search, `O(n)` shift.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        match self.store.as_slice().binary_search_by(|(k, _)| k.cmp(key)) {
+    /// `O(log n)` search, `O(n)` shift. `key` may be any borrowed form of `K`,
+    /// like [`get`](Self::get).
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        match self.search(key) {
             Ok(i) => Some(self.store.remove_at(i).1),
             Err(_) => None,
         }
@@ -267,11 +300,11 @@ where
     /// for w in ["a", "b", "a", "a"] {
     ///     *counts.entry(w).or_insert(0) += 1; // one lookup per word, not two
     /// }
-    /// assert_eq!(counts.get(&"a"), Some(&3));
-    /// assert_eq!(counts.get(&"b"), Some(&1));
+    /// assert_eq!(counts.get("a"), Some(&3));
+    /// assert_eq!(counts.get("b"), Some(&1));
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<'_, S, K> {
-        match self.store.as_slice().binary_search_by(|(k, _)| k.cmp(&key)) {
+        match self.search(&key) {
             Ok(index) => Entry::Occupied(OccupiedEntry::sorted(&mut self.store, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(&mut self.store, index, key)),
         }
@@ -595,22 +628,40 @@ where
     /// Index of the entry whose key equals `key`, or `None`. Every key lookup —
     /// `get`, `try_insert`, `remove`, `try_from_iter` — routes through this single
     /// scan, so they can never disagree on which entry is "the one for this key"
-    /// (and a future `Borrow`/comparator match lands in exactly one place).
-    fn position(&self, key: &K) -> Option<usize> {
-        self.store.as_slice().iter().position(|(k, _)| k == key)
+    /// (and the `Borrow`-keyed match — and any future comparator — lands in
+    /// exactly one place).
+    fn position<Q>(&self, key: &Q) -> Option<usize>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
+        self.store
+            .as_slice()
+            .iter()
+            .position(|(k, _)| k.borrow() == key)
     }
 
-    pub fn get<'a>(&'a self, key: &K) -> Option<&'a V>
+    /// `key` may be any borrowed form of `K` — an
+    /// `UnsortedMap<Vec<(String, V)>>` answers `get("k")` without allocating a
+    /// `String` to ask — with the usual [`Borrow`] contract that the borrowed
+    /// form's `Eq` agrees with `K`'s.
+    pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
-        K: 'a,
+        K: Borrow<Q> + 'a,
+        Q: Eq + ?Sized,
         V: 'a,
     {
         self.position(key).map(|i| &self.store.as_slice()[i].1)
     }
 
     /// Whether `key` is present. `O(n)` — routes through the same internal linear
-    /// scan as the other lookups, so it stays consistent with [`get`](Self::get).
-    pub fn contains_key(&self, key: &K) -> bool {
+    /// scan as the other lookups, so it stays consistent with [`get`](Self::get),
+    /// and takes any borrowed form of `K` the same way.
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         self.position(key).is_some()
     }
 }
@@ -622,11 +673,13 @@ where
 {
     /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
     /// update without the [`entry`](Self::entry) ceremony. Routes through the same
-    /// internal linear scan as [`get`](Self::get); carries the same explicit
-    /// `K/V: 'a` bounds (the E0311 quirk).
-    pub fn get_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>
+    /// internal linear scan as [`get`](Self::get) and takes any borrowed form of
+    /// `K` the same way; carries the same explicit `K/V: 'a` bounds (the E0311
+    /// quirk).
+    pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
-        K: 'a,
+        K: Borrow<Q> + 'a,
+        Q: Eq + ?Sized,
         V: 'a,
     {
         let i = self.position(key)?;
@@ -645,8 +698,13 @@ where
     }
 
     /// Remove the entry for `key`, returning its value. Swap-remove: O(1), order
-    /// not preserved.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    /// not preserved. `key` may be any borrowed form of `K`, like
+    /// [`get`](Self::get).
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         let i = self.position(key)?;
         Some(self.store.swap_remove_at(i).1)
     }
@@ -815,6 +873,38 @@ mod alloc_tests {
             SortedMap::<Vec<(i32, &str)>>::try_from_sorted_iter([(1, "a"), (1, "z"), (2, "b")])
                 .expect_err("duplicate key 1");
         assert_eq!(err.into_inner(), (1, "z"));
+    }
+
+    // The on-mission `Borrow` payoff: `String` keys, `&str` queries — no
+    // allocation to ask, in either flavor.
+    #[test]
+    fn lookups_take_borrowed_forms() {
+        use alloc::string::{String, ToString};
+        use core::ops::Bound;
+
+        let mut m: SortedMap<Vec<(String, u32)>> =
+            SortedMap::try_from_iter([("a".to_string(), 1), ("b".to_string(), 2)]).unwrap();
+        assert_eq!(m.get("a"), Some(&1));
+        assert!(m.contains_key("b"));
+        assert!(!m.contains_key("z"));
+        *m.get_mut("a").unwrap() += 10;
+        assert_eq!(m.get("a"), Some(&11));
+        // Unsized bounds (`str`) need the tuple-of-`Bound`s shape (range sugar
+        // like `"a".."c"` is a `Range<&str>`, which can only bound `&str`).
+        assert_eq!(
+            m.range::<str, _>((Bound::Included("b"), Bound::Unbounded)),
+            &[("b".to_string(), 2)]
+        );
+        assert_eq!(m.remove("a"), Some(11));
+        assert_eq!(m.get("a"), None);
+
+        let mut u: UnsortedMap<Vec<(String, u32)>> =
+            UnsortedMap::try_from_iter([("x".to_string(), 9)]).unwrap();
+        assert_eq!(u.get("x"), Some(&9));
+        assert!(u.contains_key("x"));
+        *u.get_mut("x").unwrap() = 10;
+        assert_eq!(u.remove("x"), Some(10));
+        assert_eq!(u.get("x"), None);
     }
 
     #[test]
@@ -1055,7 +1145,9 @@ mod alloc_tests {
         assert_eq!(m.range(3..7), &[(3, "c"), (5, "e")]);
         assert_eq!(m.range(..=3), &[(1, "a"), (3, "c")]);
         assert_eq!(m.range(4..), &[(5, "e"), (7, "g")]);
-        assert_eq!(m.range(..), m.as_slice());
+        // A full range can't infer the borrowed key type (every `Q` fits
+        // `RangeFull`), so it takes a turbofish — same as `BTreeMap::range`.
+        assert_eq!(m.range::<i32, _>(..), m.as_slice());
     }
 
     #[test]

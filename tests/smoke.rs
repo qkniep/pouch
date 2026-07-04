@@ -238,3 +238,34 @@ fn sorted_column_map_combined_cap_is_min() {
     assert_eq!(m.try_insert(1, "A"), Ok(Some("a"))); // replace still succeeds
     assert_eq!(m.len(), 2);
 }
+
+#[test]
+fn borrowed_key_lookups_across_the_surface() {
+    // The on-mission `Borrow` payoff, end to end on the blessed aliases:
+    // `String` keys, `&str` queries — no allocation to ask.
+    let mut m: Map<String, u32> = Map::default();
+    m.insert("alpha".to_string(), 1);
+    m.insert("beta".to_string(), 2);
+    assert_eq!(m.get("alpha"), Some(&1));
+    assert!(m.contains_key("beta") && !m.contains_key("gamma"));
+    *m.get_mut("alpha").unwrap() += 10;
+    assert_eq!(m.remove("beta"), Some(2));
+
+    let mut s: Set<String> = Set::default();
+    s.insert("gamma".to_string());
+    assert!(s.contains("gamma"));
+    assert!(s.remove("gamma"));
+
+    // The column maps route the same borrowed keys through their dense scans.
+    let mut cm: UnsortedColumnMap<Vec<String>, Vec<u32>> = UnsortedColumnMap::new();
+    cm.try_insert("k".to_string(), 7).unwrap();
+    assert_eq!(cm.get("k"), Some(&7));
+    assert!(cm.contains_key("k"));
+    assert_eq!(cm.remove("k"), Some(7));
+
+    let mut scm: SortedColumnMap<Vec<String>, Vec<u32>> = SortedColumnMap::new();
+    scm.try_insert("k".to_string(), 7).unwrap();
+    assert_eq!(scm.get("k"), Some(&7));
+    *scm.get_mut("k").unwrap() += 1;
+    assert_eq!(scm.remove("k"), Some(8));
+}

@@ -33,7 +33,10 @@
 //! value from a separate cache line — so [`SortedMap`](crate::SortedMap) stays
 //! the default. See its module docs.
 
+use core::borrow::Borrow;
+
 use crate::error::{BuildError, CapacityError};
+use crate::set::chunked_contains;
 use crate::store::{push, Store, StoreMut, StoreNew, Unbounded};
 
 mod entry;
@@ -66,19 +69,23 @@ pub(crate) fn combined_capacity(a: Option<usize>, b: Option<usize>) -> Option<us
 /// most one extra chunk's worth on a hit). `LANES = 8` keeps the chunk-level
 /// early exit fine enough that small-`n` hits don't regress against the
 /// early-exit baseline. See `benches/soa.rs` (`locate`).
-fn chunked_position<K: Eq>(keys: &[K], needle: &K) -> Option<usize> {
+fn chunked_position<K, Q>(keys: &[K], needle: &Q) -> Option<usize>
+where
+    K: Borrow<Q>,
+    Q: Eq + ?Sized,
+{
     const LANES: usize = 8;
     let mut offset = 0;
     let mut chunks = keys.chunks_exact(LANES);
     for chunk in chunks.by_ref() {
         let mut hit = false;
         for k in chunk {
-            hit |= k == needle;
+            hit |= k.borrow() == needle;
         }
         if hit {
             let i = chunk
                 .iter()
-                .position(|k| k == needle)
+                .position(|k| k.borrow() == needle)
                 .expect("the chunk reduction reported a match");
             return Some(offset + i);
         }
@@ -87,7 +94,7 @@ fn chunked_position<K: Eq>(keys: &[K], needle: &K) -> Option<usize> {
     chunks
         .remainder()
         .iter()
-        .position(|k| k == needle)
+        .position(|k| k.borrow() == needle)
         .map(|i| offset + i)
 }
 
@@ -96,10 +103,11 @@ fn chunked_position<K: Eq>(keys: &[K], needle: &K) -> Option<usize> {
 /// [`UnsortedMap`](crate::UnsortedMap) — trades the `&[(K, V)]` view for a
 /// dense, value-free key scan (faster for large values; see the module docs).
 /// Needs only `K: Eq`.
-// Derives `Clone` but not `PartialEq`/`Eq`: correct map equality is
-// key-order-independent, yet swap-remove lets two equal maps store their columns
-// in different orders, so a structural derive would wrongly call them unequal.
-// The sorted twin derives equality because its stored order is canonical.
+// Derives `Clone` but not `PartialEq`/`Eq` (nor `Hash`/`Ord`): correct map
+// equality is key-order-independent, yet swap-remove lets two equal maps store
+// their columns in different orders, so a structural derive would wrongly call
+// them unequal. The sorted twin derives all of these because its stored order
+// is canonical.
 #[derive(Clone, Debug)]
 pub struct UnsortedColumnMap<SK, SV> {
     keys: SK,
@@ -189,30 +197,44 @@ where
     /// layout's whole point; [`chunked_position`] gives it the branchless,
     /// vectorization-friendly shape a short-circuiting `iter().position()`
     /// can't take.
-    fn position(&self, key: &K) -> Option<usize> {
+    fn position<Q>(&self, key: &Q) -> Option<usize>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         chunked_position(self.keys.as_slice(), key)
     }
 
     // No E0311 lifetime dance here (unlike `UnsortedMap::get`): `values.as_slice()`
     // is already `&[V]`, so projecting `&V` needs no associated-type-projection
     // bound — elision ties the result to `&self`.
-    pub fn get(&self, key: &K) -> Option<&V> {
+    //
+    // `key` may be any borrowed form of `K` (a `String`-keyed column map answers
+    // `get("k")` without allocating), with the usual `Borrow` contract that the
+    // borrowed form's `Eq` agrees with `K`'s.
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         self.position(key).map(|i| &self.values.as_slice()[i])
     }
 
     /// Whether `key` is present. `O(n)`, but unlike [`get`](Self::get) it needs
-    /// only a yes/no answer — so it leans on the slice's boolean
-    /// `contains`, an OR-reduction the standard library already
-    /// auto-vectorizes for primitive keys. The index-returning lookups
-    /// (`get`/`remove`) reach a comparable branchless scan via
-    /// `chunked_position` rather than a short-circuiting `iter().position()`,
-    /// so this broad-`n`, value-independent edge over
-    /// [`UnsortedMap`](crate::UnsortedMap) — whose strided `(K, V)` scan
-    /// can't fold the same way — now extends to them too. (If a custom key
-    /// comparator is ever added these must switch to a comparator-aware
-    /// scan, forfeiting the folded path.)
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.keys.as_slice().contains(key)
+    /// only a yes/no answer — so it uses the boolean chunked fold
+    /// (`chunked_contains`, the crate's mirror of the standard library's
+    /// specialized `slice::contains`, whose `&K` needle borrowed-form lookups
+    /// can't supply), skipping `chunked_position`'s index recovery. The
+    /// index-returning lookups (`get`/`remove`) keep the comparable branchless
+    /// scan via `chunked_position`, so the broad-`n`, value-independent edge
+    /// over [`UnsortedMap`](crate::UnsortedMap) — whose strided `(K, V)` scan
+    /// can't fold the same way — holds across the board.
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
+        chunked_contains(self.keys.as_slice(), key)
     }
 }
 
@@ -226,7 +248,12 @@ where
     /// update without the [`entry`](Self::entry) ceremony. No E0311 lifetime dance
     /// (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value
     /// column is already `&mut [V]`, so elision ties the result to `&mut self`.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+    /// `key` may be any borrowed form of `K`, like [`get`](Self::get).
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         let i = self.position(key)?;
         Some(&mut self.values.as_mut_slice()[i])
     }
@@ -260,8 +287,12 @@ where
 
     /// Remove the entry for `key`, returning its value. Swap-removes at the
     /// same index in both columns, keeping them aligned: O(1), order not
-    /// preserved.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    /// preserved. `key` may be any borrowed form of `K`, like [`get`](Self::get).
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         let i = self.position(key)?;
         self.keys.swap_remove_at(i);
         Some(self.values.swap_remove_at(i))
