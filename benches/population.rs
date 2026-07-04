@@ -48,7 +48,7 @@ fn population(sorted: bool) -> Vec<Vec<u64>> {
     let mut pop = Vec::with_capacity(POP);
     for _ in 0..POP {
         let r = splitmix64(&mut state);
-        let size = if r % 100 == 0 {
+        let size = if r.is_multiple_of(100) {
             64 + (splitmix64(&mut state) % 961) as usize // tail: 64..=1024
         } else {
             1 + (r % 4) as usize // body: 1..=4
