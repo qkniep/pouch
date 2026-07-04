@@ -93,7 +93,7 @@ where
 }
 
 impl<A: Store, B: Store> Spill<A, B> {
-    /// Build from two **empty** tiers (debug-checked). The general constructor —
+    /// Builds from two **empty** tiers (debug-checked). The general constructor —
     /// use it when the spill tier needs a runtime resource it can't `new()`, like
     /// a [`ScratchVec`](crate::ScratchVec) borrowing a buffer. When both tiers are
     /// `StoreNew` and empty, [`StoreNew::new`] is the no-argument shortcut.
@@ -111,7 +111,7 @@ impl<A: Store, B: Store> Spill<A, B> {
 }
 
 impl<A: StoreNew, B: Store> Spill<A, B> {
-    /// Build with a fresh empty inline tier and the given (empty) spill tier — the
+    /// Builds with a fresh empty inline tier and the given (empty) spill tier — the
     /// ergonomic constructor for `Spill<SomeStoreNew, ScratchVec<_>>` and friends.
     pub fn with_spill(spill: B) -> Self {
         Self::from_tiers(A::new(), spill)
@@ -119,8 +119,8 @@ impl<A: StoreNew, B: Store> Spill<A, B> {
 }
 
 impl<A, B> Spill<A, B> {
-    /// Whether the store has spilled into its second tier. Once spilled it stays
-    /// spilled until [`clear`](StoreMut::clear) (no migrate-back), so this also
+    /// Returns `true` if the store has spilled into its second tier. Once spilled it
+    /// stays spilled until [`clear`](StoreMut::clear) (no migrate-back), so this also
     /// reports "has ever overflowed the inline tier".
     pub fn is_spilled(&self) -> bool {
         self.spilled
@@ -132,7 +132,7 @@ where
     A: StoreMut,
     B: StoreMut<Elem = A::Elem>,
 {
-    /// Move every element from `inline` to `spill`, order preserved, in `O(n)`
+    /// Moves every element from `inline` to `spill`, order preserved, in `O(n)`
     /// using only the universal primitives: pop the tail (`remove_at(len - 1)` is
     /// `O(1)` on every backend — no shift) into `spill`, which reverses order, then
     /// reverse `spill` once to restore it.
@@ -217,7 +217,7 @@ where
         self.spilled = false;
     }
 
-    /// Pre-arm the tier the elements will live in. Once spilled, forwards to
+    /// Pre-arms the tier the elements will live in. Once spilled, forwards to
     /// the spill tier. Before that, if the projected length (`len +
     /// additional`) still fits the inline tier there is nothing to do; if it
     /// doesn't, migration is coming — so reserve the *spill* tier for the
@@ -251,7 +251,7 @@ impl<A: StoreNew, B: StoreNew<Elem = A::Elem>> StoreNew for Spill<A, B> {
 // boundlessness is what lets the collection layer expose an infallible `insert`.
 impl<A, B: Unbounded> Unbounded for Spill<A, B> {}
 
-/// Consuming iteration: migrate any still-inline elements into the spill tier
+/// Consuming iteration: migrates any still-inline elements into the spill tier
 /// (order-preserving, `O(n)`, cannot fail — the tier is empty and must hold at
 /// least the inline capacity), then yield the spill tier's iterator. One
 /// iterator type instead of an either-tier enum; the one-time move is paid only

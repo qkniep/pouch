@@ -13,7 +13,7 @@
 use core::cmp::Ordering;
 use core::iter::FusedIterator;
 
-/// Whether sorted `a` is a subset of sorted `b`. Length check, then either
+/// Returns `true` if sorted `a` is a subset of sorted `b`. Length check, then either
 /// per-element binary search (small `a`) or a linear merge walk.
 pub(crate) fn is_subset<T: Ord>(a: &[T], mut b: &[T]) -> bool {
     if a.len() > b.len() {
@@ -47,7 +47,7 @@ pub(crate) fn is_subset<T: Ord>(a: &[T], mut b: &[T]) -> bool {
     true
 }
 
-/// Whether sorted `a` and sorted `b` share no element. Iterates the smaller
+/// Returns `true` if sorted `a` and sorted `b` share no element. Iterates the smaller
 /// side; binary-search path when it is much smaller. (The single lifetime is
 /// what lets the two slices swap roles.)
 pub(crate) fn is_disjoint<'s, T: Ord>(mut a: &'s [T], mut b: &'s [T]) -> bool {

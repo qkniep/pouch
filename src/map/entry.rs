@@ -90,7 +90,7 @@ where
         }
     }
 
-    /// Run `f` on the value if the key is present, then return the entry — for
+    /// Runs `f` on the value if the key is present, then returns the entry — for
     /// the update half of an update-or-insert chained before `or_insert`.
     pub fn and_modify<F: FnOnce(&mut V)>(mut self, f: F) -> Self {
         if let Entry::Occupied(e) = &mut self {
@@ -99,7 +99,7 @@ where
         self
     }
 
-    /// The value for the key, inserting `default` if vacant. `Err` (carrying the
+    /// Returns the value for the key, inserting `default` if vacant. `Err` (carrying the
     /// rejected `(key, default)`) only when a bounded store is at capacity.
     pub fn or_try_insert(self, default: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         match self {
@@ -129,19 +129,19 @@ where
     K: 'a,
     V: 'a,
 {
-    /// The value for the key, inserting `default` if vacant.
+    /// Returns the value for the key, inserting `default` if vacant.
     pub fn or_insert(self, default: V) -> &'a mut V {
         self.or_try_insert(default)
             .unwrap_or_else(|_| unreachable!("Unbounded store reported a capacity failure"))
     }
 
-    /// The value for the key, inserting `f()` if vacant (computed only then).
+    /// Returns the value for the key, inserting `f()` if vacant (computed only then).
     pub fn or_insert_with<F: FnOnce() -> V>(self, f: F) -> &'a mut V {
         self.or_try_insert_with(f)
             .unwrap_or_else(|_| unreachable!("Unbounded store reported a capacity failure"))
     }
 
-    /// The value for the key, inserting `V::default()` if vacant.
+    /// Returns the value for the key, inserting `V::default()` if vacant.
     pub fn or_default(self) -> &'a mut V
     where
         V: Default,
@@ -156,38 +156,39 @@ where
     K: 'a,
     V: 'a,
 {
-    /// The key in this slot.
+    /// Returns the key in this slot.
     pub fn key(&self) -> &K {
         &self.store.as_slice()[self.index].0
     }
 
-    /// A reference to the value.
+    /// Returns a reference to the value.
     pub fn get(&self) -> &V {
         &self.store.as_slice()[self.index].1
     }
 
-    /// A mutable reference to the value, borrowing the entry.
+    /// Returns a mutable reference to the value, borrowing the entry.
     pub fn get_mut(&mut self) -> &mut V {
         &mut self.store.as_mut_slice()[self.index].1
     }
 
-    /// A mutable reference to the value with the map's lifetime, consuming the entry.
+    /// Returns a mutable reference to the value with the map's lifetime, consuming the
+    /// entry.
     pub fn into_mut(self) -> &'a mut V {
         &mut self.store.as_mut_slice()[self.index].1
     }
 
-    /// Replace the value, returning the old one. Consumes no capacity, so it
+    /// Replaces the value, returning the old one. Consumes no capacity, so it
     /// never fails.
     pub fn insert(&mut self, value: V) -> V {
         core::mem::replace(self.get_mut(), value)
     }
 
-    /// Remove the entry, returning its value.
+    /// Removes the entry, returning its value.
     pub fn remove(self) -> V {
         self.remove_entry().1
     }
 
-    /// Remove the entry, returning the key and value. Order-preserving for a
+    /// Removes the entry, returning the key and value. Order-preserving for a
     /// sorted map (`O(n)` shift), `O(1)` swap-remove for an unsorted one.
     pub fn remove_entry(self) -> (K, V) {
         match self.kind {
@@ -203,17 +204,17 @@ where
     K: 'a,
     V: 'a,
 {
-    /// The key that would be inserted.
+    /// Returns the key that would be inserted.
     pub fn key(&self) -> &K {
         &self.key
     }
 
-    /// Take back ownership of the key without inserting.
+    /// Takes back ownership of the key without inserting.
     pub fn into_key(self) -> K {
         self.key
     }
 
-    /// Insert `value` for the key and return a mutable reference to it. `Err`
+    /// Inserts `value` for the key and returns a mutable reference to it. `Err`
     /// (carrying the rejected `(key, value)`) only when a bounded store is full.
     pub fn try_insert(self, value: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         let VacantEntry { store, index, key } = self;
@@ -228,7 +229,7 @@ where
     K: 'a,
     V: 'a,
 {
-    /// Insert `value` for the key and return a mutable reference to it.
+    /// Inserts `value` for the key and returns a mutable reference to it.
     pub fn insert(self, value: V) -> &'a mut V {
         self.try_insert(value)
             .unwrap_or_else(|_| unreachable!("Unbounded store reported a capacity failure"))

@@ -14,7 +14,7 @@ mod algebra;
 
 pub use algebra::{Difference, Intersection, SymmetricDifference, Union};
 
-/// Resolve a `RangeBounds` over a sorted slice into index bounds via
+/// Resolves a `RangeBounds` over a sorted slice into index bounds via
 /// `partition_point`, projecting each element to its search key with `key`
 /// (identity for sets, `.0` for maps). Shared by the sorted collections'
 /// `range` accessors.
@@ -38,7 +38,7 @@ pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
     &slice[start..end]
 }
 
-/// Whether any element of `haystack` compares equal to `needle` through its
+/// Returns `true` if any element of `haystack` compares equal to `needle` through its
 /// [`Borrow`]ed form — the membership scan under the unsorted collections'
 /// `contains` (shared with [`Bag`](crate::Bag) and the `soa` column map).
 ///
@@ -68,7 +68,7 @@ where
     chunks.remainder().iter().any(|x| x.borrow() == needle)
 }
 
-/// Re-establish the sorted-set invariant over a store filled in arbitrary order:
+/// Re-establishes the sorted-set invariant over a store filled in arbitrary order:
 /// `sort_unstable` (allocation-free, so `core`-only) then drop adjacent
 /// duplicates. `O(n log n)` sort + `O(n)` dedup. The dedup keeps the first of
 /// each equal run, compacting distinct values to the front with `swap` (no `Copy`
@@ -125,7 +125,7 @@ impl<S: StoreNew> Default for SortedSet<S> {
 }
 
 impl<S: Store> SortedSet<S> {
-    /// Wrap a store **assumed already sorted and free of duplicates** — the
+    /// Wraps a store **assumed already sorted and free of duplicates** — the
     /// invariant `binary_search` (and thus [`contains`](Self::contains) /
     /// [`try_insert`](Self::try_insert) / [`remove`](Self::remove)) relies on. No
     /// sort is performed; an out-of-order or duplicate-bearing store yields wrong
@@ -143,7 +143,7 @@ impl<S: Store> SortedSet<S> {
         );
         SortedSet { store }
     }
-    /// Borrow the backing store — the door to backend-specific introspection
+    /// Borrows the backing store — the door to backend-specific introspection
     /// the collection API doesn't abstract: `spilled()` on a `SmallVec`,
     /// [`is_spilled`](crate::Spill::is_spilled) on a [`Spill`](crate::Spill),
     /// a backend's inherent `capacity()` for *allocated* (not logical)
@@ -163,7 +163,7 @@ impl<S: Store> SortedSet<S> {
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consume the set and hand back its store, elements intact and still in
+    /// Consumes the set and hands back its store, elements intact and still in
     /// ascending order — the inverse of [`from_store`](Self::from_store), for
     /// reusing the buffer or handing a sorted `Vec` to an API that wants one.
     pub fn into_store(self) -> S {
@@ -181,19 +181,19 @@ impl<S: Store> SortedSet<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
-    /// Iterate the elements in ascending order.
+    /// Returns an iterator over the elements in ascending order.
     pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
         self.store.as_slice().iter()
     }
-    /// The smallest element, or `None` if empty. `O(1)`.
+    /// Returns the smallest element, or `None` if empty. `O(1)`.
     pub fn first(&self) -> Option<&S::Elem> {
         self.store.as_slice().first()
     }
-    /// The largest element, or `None` if empty. `O(1)`.
+    /// Returns the largest element, or `None` if empty. `O(1)`.
     pub fn last(&self) -> Option<&S::Elem> {
         self.store.as_slice().last()
     }
-    /// Whether `value` is in the set. `O(log n)`. `value` may be any borrowed
+    /// Returns `true` if `value` is in the set. `O(log n)`. `value` may be any borrowed
     /// form of the element type — a `SortedSet<Vec<String>>` answers
     /// `contains("x")` without allocating a `String` to ask — as long as the
     /// borrowed form's `Ord` agrees with the element type's (the [`Borrow`]
@@ -208,7 +208,7 @@ impl<S: Store> SortedSet<S> {
             .binary_search_by(|e| e.borrow().cmp(value))
             .is_ok()
     }
-    /// The elements within `range`, as a subslice of the sorted store — the
+    /// Returns the elements within `range`, as a subslice of the sorted store — the
     /// sorted layout's native range query. Two `O(log n)` bound searches, zero
     /// copies; iterate, index, or re-slice the result freely. The bounds may be
     /// any borrowed form of the element type, like [`contains`](Self::contains);
@@ -241,7 +241,7 @@ impl<S: Store> SortedSet<S> {
     // allocation, results in ascending order. `other` may use a *different*
     // store (`S2`) — a heap set can union with a `static` `SliceSet` table.
 
-    /// Whether every element of `self` is in `other`. `O(n + m)` merge walk,
+    /// Returns `true` if every element of `self` is in `other`. `O(n + m)` merge walk,
     /// switching to `O(n log m)` binary searches when `self` is ≥16× smaller.
     pub fn is_subset<S2>(&self, other: &SortedSet<S2>) -> bool
     where
@@ -251,7 +251,7 @@ impl<S: Store> SortedSet<S> {
         algebra::is_subset(self.as_slice(), other.as_slice())
     }
 
-    /// Whether every element of `other` is in `self` —
+    /// Returns `true` if every element of `other` is in `self` —
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
     pub fn is_superset<S2>(&self, other: &SortedSet<S2>) -> bool
     where
@@ -261,7 +261,7 @@ impl<S: Store> SortedSet<S> {
         other.is_subset(self)
     }
 
-    /// Whether `self` and `other` share no element. `O(n + m)` merge walk,
+    /// Returns `true` if `self` and `other` share no element. `O(n + m)` merge walk,
     /// switching to binary searches when one side is ≥16× smaller.
     pub fn is_disjoint<S2>(&self, other: &SortedSet<S2>) -> bool
     where
@@ -271,8 +271,8 @@ impl<S: Store> SortedSet<S> {
         algebra::is_disjoint(self.as_slice(), other.as_slice())
     }
 
-    /// Iterate the elements in `self`, `other`, or both, ascending — each
-    /// shared element once. Collect into an [`Unbounded`] set with
+    /// Returns an iterator over the elements in `self`, `other`, or both, ascending —
+    /// each shared element once. Collect into an [`Unbounded`] set with
     /// `.cloned().collect()`, or `try_extend` a bounded one.
     ///
     /// ```
@@ -292,7 +292,7 @@ impl<S: Store> SortedSet<S> {
         Union::new(self.as_slice(), other.as_slice())
     }
 
-    /// Iterate the elements in both `self` and `other`, ascending. See
+    /// Returns an iterator over the elements in both `self` and `other`, ascending. See
     /// [`union`](Self::union).
     pub fn intersection<'a, S2>(&'a self, other: &'a SortedSet<S2>) -> Intersection<'a, S::Elem>
     where
@@ -302,7 +302,7 @@ impl<S: Store> SortedSet<S> {
         Intersection::new(self.as_slice(), other.as_slice())
     }
 
-    /// Iterate the elements in `self` but not `other`, ascending. See
+    /// Returns an iterator over the elements in `self` but not `other`, ascending. See
     /// [`union`](Self::union).
     pub fn difference<'a, S2>(&'a self, other: &'a SortedSet<S2>) -> Difference<'a, S::Elem>
     where
@@ -312,8 +312,8 @@ impl<S: Store> SortedSet<S> {
         Difference::new(self.as_slice(), other.as_slice())
     }
 
-    /// Iterate the elements in exactly one of `self`, `other`, ascending. See
-    /// [`union`](Self::union).
+    /// Returns an iterator over the elements in exactly one of `self`, `other`,
+    /// ascending. See [`union`](Self::union).
     pub fn symmetric_difference<'a, S2>(
         &'a self,
         other: &'a SortedSet<S2>,
@@ -327,12 +327,12 @@ impl<S: Store> SortedSet<S> {
 }
 
 impl<S: StoreMut> SortedSet<S> {
-    /// Remove every element, keeping the backing store's allocated capacity. Needs
+    /// Removes every element, keeping the backing store's allocated capacity. Needs
     /// no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
     }
-    /// Pre-allocate so at least `additional` more elements fit without a
+    /// Pre-allocates so at least `additional` more elements fit without a
     /// reallocation — pay the growth once up front instead of as spikes
     /// mid-burst ([`StoreMut::reserve`]).
     /// Stores that never reallocate (fixed-capacity, borrowed) have nothing to
@@ -351,7 +351,7 @@ impl<S: StoreMut> SortedSet<S> {
     pub fn reserve(&mut self, additional: usize) {
         self.store.reserve(additional);
     }
-    /// Keep only the elements for which `f` returns `true`, preserving order.
+    /// Retains only the elements for which `f` returns `true`, preserving order.
     /// `O(n)`, and needs no `Ord` bound — dropping elements can't unsort the rest.
     pub fn retain<F: FnMut(&S::Elem) -> bool>(&mut self, mut f: F) {
         retain_in(&mut self.store, |e| f(e));
@@ -362,8 +362,8 @@ impl<S: StoreMut> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Insert preserving order. `Ok(true)` if newly added, `Ok(false)` if already
-    /// present (a duplicate consumes no capacity and never errors).
+    /// Inserts `value`, preserving order. `Ok(true)` if newly added, `Ok(false)` if
+    /// already present (a duplicate consumes no capacity and never errors).
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
         match self.store.as_slice().binary_search(&value) {
             Ok(_) => Ok(false),
@@ -371,7 +371,7 @@ where
         }
     }
 
-    /// Remove `value`, returning whether it was present. Order-preserving
+    /// Removes `value`, returning whether it was present. Order-preserving
     /// shift: `O(log n)` search, `O(n)` shift. `value` may be any borrowed form
     /// of the element type, like [`contains`](Self::contains).
     pub fn remove<Q>(&mut self, value: &Q) -> bool
@@ -392,7 +392,7 @@ where
         }
     }
 
-    /// Insert every item from `iter`, one at a time. `O(k·n)` for `k` items —
+    /// Inserts every item from `iter`, one at a time. `O(k·n)` for `k` items —
     /// each is a [`try_insert`](Self::try_insert), so duplicates never consume
     /// capacity and the set stays valid even if a bounded store fills partway: on
     /// error the items inserted so far are kept and the rejected element returned.
@@ -418,7 +418,7 @@ impl<S: StoreMut + StoreNew> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Build from an arbitrary (unordered) iterator in `O(n log n)`: append every
+    /// Builds from an arbitrary (unordered) iterator in `O(n log n)`: append every
     /// item, then sort and drop duplicates once. Beats repeated
     /// [`try_insert`](Self::try_insert) — which is `O(n²)`, a shift per element —
     /// for bulk construction.
@@ -438,7 +438,7 @@ where
         Ok(Self::from_store(store))
     }
 
-    /// Build from an iterator whose items are already in ascending order, in
+    /// Builds from an iterator whose items are already in ascending order, in
     /// `O(n)` — no sort, no shifting, just an append per distinct element. Equal
     /// neighbours are dropped, so duplicate runs in the input are fine.
     ///
@@ -474,7 +474,8 @@ impl<S: StoreMut + Unbounded> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Infallible insert — available only when the backing store is [`Unbounded`].
+    /// Infallibly inserts `value` — available only when the backing store is
+    /// [`Unbounded`].
     pub fn insert(&mut self, value: S::Elem) -> bool {
         match self.try_insert(value) {
             Ok(b) => b,
@@ -487,8 +488,9 @@ impl<S: StoreMut + StoreNew + Unbounded> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Infallible [`try_from_sorted_iter`](Self::try_from_sorted_iter) — available
-    /// only for an [`Unbounded`] store. `O(n)`.
+    /// Builds from an ascending iterator — the infallible
+    /// [`try_from_sorted_iter`](Self::try_from_sorted_iter), available only for an
+    /// [`Unbounded`] store. `O(n)`.
     pub fn from_sorted_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = S::Elem>,
@@ -516,7 +518,7 @@ where
     S: StoreMut + StoreNew + Unbounded,
     S::Elem: Ord,
 {
-    /// `.collect()` into a sorted set. `O(n log n)`; see
+    /// Collects an iterator into a sorted set. `O(n log n)`; see
     /// [`try_from_iter`](Self::try_from_iter) for the bounded-store counterpart.
     fn from_iter<I: IntoIterator<Item = S::Elem>>(iter: I) -> Self {
         match SortedSet::try_from_iter(iter) {
@@ -535,7 +537,7 @@ impl<'a, S: Store> IntoIterator for &'a SortedSet<S> {
     }
 }
 
-/// Consume the set, yielding its elements in ascending order. Available when
+/// Consumes the set, yielding its elements in ascending order. Available when
 /// the backing store is itself consumable into its elements (every owning
 /// backend is; a borrowed `&[T]` store is not — it can't give up owned values).
 impl<S> IntoIterator for SortedSet<S>
@@ -555,7 +557,7 @@ where
     S: StoreMut + Unbounded,
     S::Elem: Ord,
 {
-    /// Append every item, then sort and dedup once — `O((n + k) log(n + k))`,
+    /// Appends every item, then sorts and dedups once — `O((n + k) log(n + k))`,
     /// faster than [`try_extend`](Self::try_extend)'s one-at-a-time shift for a
     /// large `k`. Only for [`Unbounded`] stores; bounded ones use `try_extend`.
     fn extend<I: IntoIterator<Item = S::Elem>>(&mut self, iter: I) {
@@ -593,7 +595,7 @@ impl<S: StoreNew> Default for UnsortedSet<S> {
 }
 
 impl<S: Store> UnsortedSet<S> {
-    /// Wrap a store **assumed free of duplicates** — the set invariant. No scan is
+    /// Wraps a store **assumed free of duplicates** — the set invariant. No scan is
     /// performed; duplicates would inflate `len` and let the same value be removed
     /// twice. The precondition is `debug_assert!`-checked (zero cost in release).
     /// To build from arbitrary input, use [`try_from_iter`](Self::try_from_iter).
@@ -610,14 +612,14 @@ impl<S: Store> UnsortedSet<S> {
         );
         UnsortedSet { store }
     }
-    /// Borrow the backing store, for backend-specific introspection
+    /// Borrows the backing store, for backend-specific introspection
     /// (`spilled()`, allocated capacity, …) — see
     /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
     /// access could smuggle in a duplicate, breaking the set invariant.
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consume the set and hand back its store, elements intact (in no
+    /// Consumes the set and hands back its store, elements intact (in no
     /// particular order) — the inverse of [`from_store`](Self::from_store).
     pub fn into_store(self) -> S {
         self.store
@@ -634,11 +636,11 @@ impl<S: Store> UnsortedSet<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
-    /// Iterate the elements, in no particular order.
+    /// Returns an iterator over the elements, in no particular order.
     pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
         self.store.as_slice().iter()
     }
-    /// Whether `value` is in the set. `O(n)` linear scan. `value` may be any
+    /// Returns `true` if `value` is in the set. `O(n)` linear scan. `value` may be any
     /// borrowed form of the element type — a `String` set answers
     /// `contains("x")` without allocating — with the usual [`Borrow`] contract
     /// that the borrowed form's `Eq` agrees with the element type's.
@@ -655,7 +657,7 @@ impl<S: Store> UnsortedSet<S> {
     // element-yielding algebra (union & co.) use the sorted flavor. As there,
     // `other` may use a different store.
 
-    /// Whether every element of `self` is in `other`. `O(n·m)` — a
+    /// Returns `true` if every element of `self` is in `other`. `O(n·m)` — a
     /// [`contains`](Self::contains) scan per element.
     pub fn is_subset<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
@@ -665,7 +667,7 @@ impl<S: Store> UnsortedSet<S> {
         self.len() <= other.len() && self.iter().all(|x| other.contains(x))
     }
 
-    /// Whether every element of `other` is in `self` —
+    /// Returns `true` if every element of `other` is in `self` —
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
     pub fn is_superset<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
@@ -675,7 +677,7 @@ impl<S: Store> UnsortedSet<S> {
         other.is_subset(self)
     }
 
-    /// Whether `self` and `other` share no element. `O(n·m)`, scanning with
+    /// Returns `true` if `self` and `other` share no element. `O(n·m)`, scanning with
     /// the smaller set on the outside.
     pub fn is_disjoint<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
@@ -691,17 +693,17 @@ impl<S: Store> UnsortedSet<S> {
 }
 
 impl<S: StoreMut> UnsortedSet<S> {
-    /// Remove every element, keeping the backing store's allocated capacity. Needs
+    /// Removes every element, keeping the backing store's allocated capacity. Needs
     /// no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
     }
-    /// Pre-allocate so at least `additional` more elements fit without a
+    /// Pre-allocates so at least `additional` more elements fit without a
     /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.store.reserve(additional);
     }
-    /// Keep only the elements for which `f` returns `true`. `O(n)`; needs no
+    /// Retains only the elements for which `f` returns `true`. `O(n)`; needs no
     /// `Eq` bound.
     pub fn retain<F: FnMut(&S::Elem) -> bool>(&mut self, mut f: F) {
         retain_in(&mut self.store, |e| f(e));
@@ -712,7 +714,7 @@ impl<S: StoreMut> UnsortedSet<S>
 where
     S::Elem: Eq,
 {
-    /// Append at the tail. `Ok(true)` if newly added, `Ok(false)` if already
+    /// Appends `value` at the tail. `Ok(true)` if newly added, `Ok(false)` if already
     /// present (a duplicate consumes no capacity and never errors). O(n) to
     /// reject a duplicate, O(1) to append.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
@@ -722,7 +724,7 @@ where
         push(&mut self.store, value).map(|()| true)
     }
 
-    /// Remove by swapping in the last element (O(1)); does not preserve order.
+    /// Removes by swapping in the last element (O(1)); does not preserve order.
     /// `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
     pub fn remove<Q>(&mut self, value: &Q) -> bool
@@ -744,7 +746,7 @@ where
         }
     }
 
-    /// Insert every item from `iter`, skipping duplicates. `O(k·n)` for `k` items;
+    /// Inserts every item from `iter`, skipping duplicates. `O(k·n)` for `k` items;
     /// on error the items inserted so far are kept and the rejected element
     /// returned. Without `Ord` there is no faster dedup — for bulk loads prefer a
     /// [`SortedSet`].
@@ -768,7 +770,7 @@ impl<S: StoreMut + StoreNew> UnsortedSet<S>
 where
     S::Elem: Eq,
 {
-    /// Build from an iterator, skipping duplicates. `O(n²)`: each item is scanned
+    /// Builds from an iterator, skipping duplicates. `O(n²)`: each item is scanned
     /// against those already kept (an unsorted set has no faster dedup without
     /// `Ord`). For large inputs prefer a [`SortedSet`].
     pub fn try_from_iter<I>(iter: I) -> Result<Self, CapacityError<S::Elem>>
@@ -785,7 +787,8 @@ impl<S: StoreMut + Unbounded> UnsortedSet<S>
 where
     S::Elem: Eq,
 {
-    /// Infallible insert — available only when the backing store is [`Unbounded`].
+    /// Infallibly inserts `value` — available only when the backing store is
+    /// [`Unbounded`].
     pub fn insert(&mut self, value: S::Elem) -> bool {
         match self.try_insert(value) {
             Ok(b) => b,
@@ -799,7 +802,7 @@ where
     S: StoreMut + StoreNew + Unbounded,
     S::Elem: Eq,
 {
-    /// `.collect()` into an unsorted set, skipping duplicates. `O(n²)`.
+    /// Collects an iterator into an unsorted set, skipping duplicates. `O(n²)`.
     fn from_iter<I: IntoIterator<Item = S::Elem>>(iter: I) -> Self {
         match UnsortedSet::try_from_iter(iter) {
             Ok(set) => set,
@@ -817,7 +820,7 @@ impl<'a, S: Store> IntoIterator for &'a UnsortedSet<S> {
     }
 }
 
-/// Consume the set, yielding its elements in no particular order. Available
+/// Consumes the set, yielding its elements in no particular order. Available
 /// when the backing store is itself consumable into its elements.
 impl<S> IntoIterator for UnsortedSet<S>
 where

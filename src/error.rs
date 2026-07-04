@@ -8,14 +8,14 @@ use core::fmt;
 pub struct CapacityError<T>(pub(crate) T);
 
 impl<T> CapacityError<T> {
-    /// Wrap a rejected element. For third-party [`StoreMut`](crate::store::StoreMut)
+    /// Wraps a rejected element. For third-party [`StoreMut`](crate::store::StoreMut)
     /// implementations, whose `try_insert_at` must hand the value back on overflow;
     /// everything in-crate constructs the error directly.
     pub fn new(value: T) -> Self {
         CapacityError(value)
     }
 
-    /// Recover the element that could not be inserted.
+    /// Recovers the element that could not be inserted.
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -61,7 +61,7 @@ pub enum BuildError<T> {
 }
 
 impl<T> BuildError<T> {
-    /// Recover the element that could not be inserted.
+    /// Recovers the element that could not be inserted.
     pub fn into_inner(self) -> T {
         match self {
             BuildError::Capacity(t) | BuildError::DuplicateKey(t) | BuildError::Unsorted(t) => t,
