@@ -29,7 +29,13 @@ fn entry_refs<K, V>(entry: &(K, V)) -> (&K, &V) {
 }
 
 /// A map kept sorted by key in its backing store (`Elem = (K, V)`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+// The stored order is canonical (sorted by key, unique keys), so the structural
+// derives are the semantic ones: the derived `Hash`/`PartialOrd`/`Ord`
+// (lexicographic over `(K, V)` entries in ascending key order, exactly
+// `BTreeMap`'s) are consistent with the derived `PartialEq`, letting a
+// `SortedMap` key another map or live in a `BTreeSet`. The unsorted twin can
+// derive none of these (swap-remove makes its stored order incidental).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SortedMap<S> {
     store: S,
 }
@@ -511,10 +517,11 @@ where
 /// A map with no key ordering (`Elem = (K, V)`): lookup is a linear scan, insert
 /// appends, delete swap-removes. The unsorted counterpart of [`SortedMap`];
 /// needs only `K: Eq`, not `K: Ord`.
-// Derives `Clone` but not `PartialEq`/`Eq`: correct map equality is
-// key-order-independent, yet swap-remove lets two equal maps store their entries
-// in different orders, so a structural derive would wrongly call them unequal.
-// The sorted twin derives equality because its stored order is canonical.
+// Derives `Clone` but not `PartialEq`/`Eq` (nor `Hash`/`Ord`): correct map
+// equality is key-order-independent, yet swap-remove lets two equal maps store
+// their entries in different orders, so a structural derive would wrongly call
+// them unequal. The sorted twin derives all of these because its stored order
+// is canonical.
 #[derive(Clone, Debug)]
 pub struct UnsortedMap<S> {
     store: S,

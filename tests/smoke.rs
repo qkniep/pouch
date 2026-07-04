@@ -309,3 +309,72 @@ fn store_access_and_reserve_across_the_surface() {
     let (ks, vs) = cm.into_stores();
     assert_eq!((ks.as_slice(), vs.as_slice()), (&[1][..], &[10][..]));
 }
+
+#[test]
+fn sorted_collections_are_good_citizens_in_other_structures() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::collections::{BTreeSet, HashMap};
+    use std::hash::{Hash, Hasher};
+
+    fn hash_of<T: Hash>(t: &T) -> u64 {
+        let mut h = DefaultHasher::new();
+        t.hash(&mut h);
+        h.finish()
+    }
+
+    // Build order doesn't matter: the stored order is canonical, so equal sets
+    // hash equal — the property that makes them valid HashMap keys.
+    let a: Set<u32> = [3, 1, 2].into_iter().collect();
+    let b: Set<u32> = [2, 3, 1, 1].into_iter().collect();
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    let mut by_set: HashMap<Set<u32>, &str> = HashMap::new();
+    by_set.insert(a, "quorum-a");
+    assert_eq!(by_set.get(&b), Some(&"quorum-a")); // looked up via the twin
+
+    // Maps too, including as BTreeSet members (needs Ord).
+    let m1: Map<u32, &str> = Map::try_from_iter([(1, "a"), (2, "b")]).unwrap();
+    let m2: Map<u32, &str> = Map::try_from_iter([(2, "b"), (1, "a")]).unwrap();
+    assert_eq!(hash_of(&m1), hash_of(&m2));
+    let nested: BTreeSet<Map<u32, &str>> = [m1, m2].into_iter().collect();
+    assert_eq!(nested.len(), 1); // equal maps collapse
+
+    // SortedColumnMap orders column-wise — a valid total order for nesting,
+    // though not the entry-interleaved order of the AoS SortedMap.
+    let c1: SortedColumnMap<Vec<u32>, Vec<u32>> =
+        SortedColumnMap::try_from_iter([(1, 10)]).unwrap();
+    let c2: SortedColumnMap<Vec<u32>, Vec<u32>> =
+        SortedColumnMap::try_from_iter([(2, 20)]).unwrap();
+    assert!(c1 < c2);
+    assert_eq!(hash_of(&c1), hash_of(&c1.clone()));
+}
+
+#[test]
+fn spill_compares_and_hashes_by_contents() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    fn hash_of<T: Hash>(t: &T) -> u64 {
+        let mut h = DefaultHasher::new();
+        t.hash(&mut h);
+        h.finish()
+    }
+
+    // One set spills and shrinks back; the other never spills. Spill's
+    // slice-based impls make the SortedSet derives tier-blind.
+    let mut a: SortedSet<Spill<arrayvec::ArrayVec<u32, 2>, Vec<u32>>> = SortedSet::new();
+    for x in [1, 2, 3] {
+        a.insert(x);
+    }
+    a.remove(&3); // back under the inline bound, but stays spilled
+    assert!(a.store().is_spilled());
+
+    let mut b: SortedSet<Spill<arrayvec::ArrayVec<u32, 2>, Vec<u32>>> = SortedSet::new();
+    b.insert(1);
+    b.insert(2);
+    assert!(!b.store().is_spilled());
+
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
