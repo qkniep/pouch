@@ -104,6 +104,30 @@ pub(crate) fn push<S: StoreMut>(
     store.try_insert_at(i, value)
 }
 
+/// Keep only the elements for which `f` returns `true`, preserving the order of
+/// the kept ones — the shared engine under every collection's `retain`. `O(n)`
+/// with no `Copy`/`Clone` bound: each kept element is swapped down to its final
+/// slot (the slots in between hold only doomed elements, whose relative order
+/// doesn't matter), then the doomed tail is popped off — each pop is
+/// `remove_at(len - 1)`, `O(1)` on every backend. The predicate gets `&mut` so
+/// map `retain` can offer in-place value mutation; set `retain` narrows it to
+/// `&` (an element edit could break the set invariant).
+pub(crate) fn retain_in<S: StoreMut>(store: &mut S, mut f: impl FnMut(&mut S::Elem) -> bool) {
+    let s = store.as_mut_slice();
+    let mut write = 0;
+    for read in 0..s.len() {
+        if f(&mut s[read]) {
+            if write != read {
+                s.swap(write, read);
+            }
+            write += 1;
+        }
+    }
+    while store.len() > write {
+        store.remove_at(store.len() - 1);
+    }
+}
+
 /// Append every item from `iter` at the tail via [`push`] — the shared loop
 /// under the bulk collection builders (`try_from_iter`, `extend`, …). Stops at
 /// the first capacity failure, returning the rejected element; the items

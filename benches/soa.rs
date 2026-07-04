@@ -1,10 +1,10 @@
-//! Value-size sweep — `UnsortedMap` (array-of-structs) vs `ColumnMap`
+//! Value-size sweep — `UnsortedMap` (array-of-structs) vs `UnsortedColumnMap`
 //! (struct-of-arrays), the one axis `benches/map.rs` doesn't cover.
 //!
 //! Both are pouch's *real* unsorted maps; the only difference is layout.
 //! `UnsortedMap<Vec<(K, V)>>` interleaves keys and values, so its O(n) lookup
 //! scan reads `.0` at a `sizeof((K, V))` stride and drags every `V` through
-//! cache. `ColumnMap<Vec<K>, Vec<V>>` keeps keys in their own dense `Vec`, so
+//! cache. `UnsortedColumnMap<Vec<K>, Vec<V>>` keeps keys in their own dense `Vec`, so
 //! the scan is contiguous, branch-predictable, and auto-vectorizable, and never
 //! touches the values. Theory says the gap widens with `sizeof(V)/sizeof(K)`
 //! and is largest for misses (which always scan the whole array); this sweep
@@ -35,7 +35,7 @@
 
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
-use pouch::{ColumnMap, SortedColumnMap, SortedMap, UnsortedMap};
+use pouch::{SortedColumnMap, SortedMap, UnsortedColumnMap, UnsortedMap};
 
 mod common;
 use common::keys;
@@ -116,10 +116,10 @@ impl<V: Payload> Map for Aos<V> {
 }
 
 /// Struct-of-arrays: the column map (dense `[u64]` key scan, values untouched).
-struct Soa<V>(ColumnMap<Vec<u64>, Vec<V>>);
+struct Soa<V>(UnsortedColumnMap<Vec<u64>, Vec<V>>);
 impl<V: Payload> Map for Soa<V> {
     fn build(keys: &[u64]) -> Self {
-        let mut m = ColumnMap::new();
+        let mut m = UnsortedColumnMap::new();
         for &k in keys {
             let _ = m.try_insert(k, V::from_key(k));
         }
@@ -274,7 +274,7 @@ fn sorted_get_miss<M: SortedLookup>(bencher: Bencher, n: usize) {
     });
 }
 
-// `ColumnMap::get`/`remove` need the matching *index*, not just a yes/no, so
+// `UnsortedColumnMap::get`/`remove` need the matching *index*, not just a yes/no, so
 // they can't ride the already-vectorized boolean `contains`. They scan the
 // dense key column with `chunked_position` (src/column_map.rs): a fixed-trip
 // OR-reduction LLVM folds to branchless compares (one chunk-level branch per
@@ -285,12 +285,12 @@ fn sorted_get_miss<M: SortedLookup>(bencher: Bencher, n: usize) {
 // there). Both sum the located value, so the index can't be elided back down to
 // a `contains`.
 mod locate {
-    use pouch::ColumnMap;
+    use pouch::UnsortedColumnMap;
 
     use super::*;
 
-    fn build(src: &[u64]) -> ColumnMap<Vec<u64>, Vec<u64>> {
-        let mut m = ColumnMap::new();
+    fn build(src: &[u64]) -> UnsortedColumnMap<Vec<u64>, Vec<u64>> {
+        let mut m = UnsortedColumnMap::new();
         for &k in src {
             let _ = m.try_insert(k, k);
         }
@@ -331,7 +331,7 @@ mod locate {
         });
     }
 
-    /// The shipped path: `ColumnMap::get` routes through `chunked_position`.
+    /// The shipped path: `UnsortedColumnMap::get` routes through `chunked_position`.
     #[divan::bench(args = SCAN_SIZES)]
     fn chunked_hit(bencher: Bencher, n: usize) {
         let k = keys(n);

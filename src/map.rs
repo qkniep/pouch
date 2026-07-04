@@ -4,12 +4,28 @@
 //! [`UnsortedMap`] appends and swap-removes (`O(1)` mutation, `O(n)` search) and
 //! needs only `K: Eq` rather than `K: Ord`.
 
+use core::ops::RangeBounds;
+
 use crate::error::{BuildError, CapacityError};
-use crate::store::{append_all, push, Store, StoreMut, StoreNew, Unbounded};
+use crate::set::subrange;
+use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
 
 mod entry;
 
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
+
+/// Iterator over a map's entries as `(&K, &V)` pairs — what [`SortedMap::iter`]
+/// / [`UnsortedMap::iter`] return and `&map` iterates as. A plain projection of
+/// the underlying `&[(K, V)]` slice iterator, so it is double-ended and
+/// exact-size.
+pub type MapIter<'a, K, V> =
+    core::iter::Map<core::slice::Iter<'a, (K, V)>, fn(&'a (K, V)) -> (&'a K, &'a V)>;
+
+/// Split a borrowed entry into borrowed key/value halves — the projection under
+/// [`MapIter`].
+fn entry_refs<K, V>(entry: &(K, V)) -> (&K, &V) {
+    (&entry.0, &entry.1)
+}
 
 /// A map kept sorted by key in its backing store (`Elem = (K, V)`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,8 +55,7 @@ impl<S: Store> SortedMap<S> {
     pub fn capacity(&self) -> Option<usize> {
         self.store.capacity()
     }
-    /// The entries as a contiguous `(K, V)` slice, in ascending key order. The
-    /// sole iteration accessor: enumerate keys/values via `.iter()`.
+    /// The entries as a contiguous `(K, V)` slice, in ascending key order.
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -51,6 +66,95 @@ impl<S: StoreMut> SortedMap<S> {
     /// no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+}
+
+// The iteration accessors need no `K: Ord` — they only walk the store. (The
+// explicit `K/V: 'a` bounds throughout are the E0311 projection quirk; see
+// `get`.)
+impl<K, V, S> SortedMap<S>
+where
+    S: Store<Elem = (K, V)>,
+{
+    /// Iterate the entries as `(&K, &V)` pairs, in ascending key order.
+    pub fn iter<'a>(&'a self) -> MapIter<'a, K, V>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(entry_refs)
+    }
+
+    /// Iterate the keys in ascending order.
+    pub fn keys<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a K> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(|(k, _)| k)
+    }
+
+    /// Iterate the values, in ascending order of their keys.
+    pub fn values<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a V> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(|(_, v)| v)
+    }
+
+    /// The entry with the smallest key, or `None` if empty. `O(1)`.
+    pub fn first_key_value<'a>(&'a self) -> Option<(&'a K, &'a V)>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().first().map(entry_refs)
+    }
+
+    /// The entry with the largest key, or `None` if empty. `O(1)`.
+    pub fn last_key_value<'a>(&'a self) -> Option<(&'a K, &'a V)>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().last().map(entry_refs)
+    }
+}
+
+// The mutating iteration accessors need no `K: Ord` either: handing out `&mut V`
+// can't unsort the keys (only `&mut K` could, so there is no `keys_mut`).
+impl<K, V, S> SortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)>,
+{
+    /// Iterate the entries as `(&K, &mut V)` pairs, in ascending key order —
+    /// bulk in-place value updates without touching the keys.
+    pub fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_mut_slice().iter_mut().map(|(k, v)| (&*k, v))
+    }
+
+    /// Iterate the values mutably, in ascending order of their keys.
+    pub fn values_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_mut_slice().iter_mut().map(|(_, v)| v)
+    }
+
+    /// Keep only the entries for which `f` returns `true`, preserving key order.
+    /// `O(n)`. The predicate gets `&mut V`, so it can update the entries it keeps.
+    pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut f: F) {
+        retain_in(&mut self.store, |(k, v)| f(k, v));
     }
 }
 
@@ -96,6 +200,17 @@ where
             .as_slice()
             .binary_search_by(|(k, _)| k.cmp(key))
             .is_ok()
+    }
+
+    /// The entries whose keys fall within `range`, as a subslice of the sorted
+    /// store — the sorted layout's native range query. Two `O(log n)` bound
+    /// searches, zero copies.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range's start is greater than its end.
+    pub fn range<R: RangeBounds<K>>(&self, range: R) -> &[(K, V)] {
+        subrange(self.store.as_slice(), range, |(k, _)| k)
     }
 }
 
@@ -247,6 +362,82 @@ where
     }
 }
 
+impl<K, V, S> SortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)> + Unbounded,
+    K: Ord,
+{
+    /// Infallible insert-or-replace, returning the previous value — available
+    /// only when the backing store is [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.try_insert(key, value) {
+            Ok(prev) => prev,
+            Err(_) => unreachable!("Unbounded store reported a capacity failure"),
+        }
+    }
+}
+
+impl<K, V, S> SortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)> + StoreNew + Unbounded,
+    K: Ord,
+{
+    /// Infallible [`try_from_sorted_iter`](Self::try_from_sorted_iter) —
+    /// available only for an [`Unbounded`] store. `O(n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the keys are not in ascending order or a key repeats — an
+    /// infallible builder has no error channel, and a map cannot silently pick
+    /// which duplicate value wins.
+    pub fn from_sorted_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        match Self::try_from_sorted_iter(iter) {
+            Ok(map) => map,
+            Err(BuildError::Capacity(_)) => {
+                unreachable!("Unbounded store reported a capacity failure")
+            }
+            Err(BuildError::DuplicateKey(_)) => {
+                panic!("from_sorted_iter: duplicate key")
+            }
+            Err(BuildError::Unsorted(_)) => {
+                panic!("from_sorted_iter: keys were not in ascending order")
+            }
+        }
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a SortedMap<S>
+where
+    S: Store<Elem = (K, V)>,
+    K: 'a,
+    V: 'a,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = MapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consume the map, yielding owned `(K, V)` entries in ascending key order.
+/// Available when the backing store is itself consumable into its elements.
+impl<S> IntoIterator for SortedMap<S>
+where
+    S: Store + IntoIterator<Item = <S as Store>::Elem>,
+{
+    type Item = S::Elem;
+    type IntoIter = <S as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.store.into_iter()
+    }
+}
+
 impl<K, V, S> Extend<(K, V)> for SortedMap<S>
 where
     S: StoreMut<Elem = (K, V)> + Unbounded,
@@ -299,8 +490,7 @@ impl<S: Store> UnsortedMap<S> {
         self.store.capacity()
     }
     /// The entries as a contiguous `(K, V)` slice, in insertion order modulo the
-    /// swaps that [`remove`](Self::remove) performs. The sole iteration accessor:
-    /// enumerate keys/values via `.iter()`.
+    /// swaps that [`remove`](Self::remove) performs.
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -311,6 +501,73 @@ impl<S: StoreMut> UnsortedMap<S> {
     /// no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+}
+
+// Iteration accessors, `K: Eq`-free — they only walk the store. (The explicit
+// `K/V: 'a` bounds are the E0311 projection quirk; see `get`.)
+impl<K, V, S> UnsortedMap<S>
+where
+    S: Store<Elem = (K, V)>,
+{
+    /// Iterate the entries as `(&K, &V)` pairs, in no particular order.
+    pub fn iter<'a>(&'a self) -> MapIter<'a, K, V>
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(entry_refs)
+    }
+
+    /// Iterate the keys, in no particular order.
+    pub fn keys<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a K> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(|(k, _)| k)
+    }
+
+    /// Iterate the values, in no particular order.
+    pub fn values<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a V> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_slice().iter().map(|(_, v)| v)
+    }
+}
+
+impl<K, V, S> UnsortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)>,
+{
+    /// Iterate the entries as `(&K, &mut V)` pairs — bulk in-place value updates.
+    pub fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_mut_slice().iter_mut().map(|(k, v)| (&*k, v))
+    }
+
+    /// Iterate the values mutably, in no particular order.
+    pub fn values_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.store.as_mut_slice().iter_mut().map(|(_, v)| v)
+    }
+
+    /// Keep only the entries for which `f` returns `true`. `O(n)`. The predicate
+    /// gets `&mut V`, so it can update the entries it keeps.
+    pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut f: F) {
+        retain_in(&mut self.store, |(k, v)| f(k, v));
     }
 }
 
@@ -449,6 +706,50 @@ where
             push(&mut map.store, (key, value))?;
         }
         Ok(map)
+    }
+}
+
+impl<K, V, S> UnsortedMap<S>
+where
+    S: StoreMut<Elem = (K, V)> + Unbounded,
+    K: Eq,
+{
+    /// Infallible insert-or-replace, returning the previous value — available
+    /// only when the backing store is [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.try_insert(key, value) {
+            Ok(prev) => prev,
+            Err(_) => unreachable!("Unbounded store reported a capacity failure"),
+        }
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a UnsortedMap<S>
+where
+    S: Store<Elem = (K, V)>,
+    K: 'a,
+    V: 'a,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = MapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consume the map, yielding owned `(K, V)` entries in no particular order.
+/// Available when the backing store is itself consumable into its elements.
+impl<S> IntoIterator for UnsortedMap<S>
+where
+    S: Store + IntoIterator<Item = <S as Store>::Elem>,
+{
+    type Item = S::Elem;
+    type IntoIter = <S as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.store.into_iter()
     }
 }
 
@@ -667,6 +968,94 @@ mod alloc_tests {
         // A vacant entry appends.
         *m.entry(9).or_insert("z") = "Z";
         assert_eq!(m.get(&9), Some(&"Z"));
+    }
+
+    #[test]
+    fn insert_is_infallible_on_unbounded_stores() {
+        let mut m: SortedMap<Vec<(i32, &str)>> = SortedMap::new();
+        assert_eq!(m.insert(2, "b"), None);
+        assert_eq!(m.insert(1, "a"), None);
+        assert_eq!(m.insert(2, "B"), Some("b")); // replace hands back the old value
+        assert_eq!(m.as_slice(), &[(1, "a"), (2, "B")]);
+
+        let mut um: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
+        assert_eq!(um.insert(1, "a"), None);
+        assert_eq!(um.insert(1, "A"), Some("a"));
+        assert_eq!(um.get(&1), Some(&"A"));
+    }
+
+    #[test]
+    fn from_sorted_iter_builds_in_order() {
+        let m = SortedMap::<Vec<(i32, &str)>>::from_sorted_iter([(1, "a"), (2, "b")]);
+        assert_eq!(m.as_slice(), &[(1, "a"), (2, "b")]);
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate key")]
+    fn from_sorted_iter_panics_on_duplicate_key() {
+        let _ = SortedMap::<Vec<(i32, &str)>>::from_sorted_iter([(1, "a"), (1, "z")]);
+    }
+
+    #[test]
+    fn iteration_accessors_walk_entries() {
+        let m: SortedMap<Vec<(i32, i32)>> =
+            SortedMap::try_from_iter([(2, 20), (1, 10), (3, 30)]).unwrap();
+        // iter / &m yield (&K, &V) in ascending key order.
+        assert!(m.iter().eq([(&1, &10), (&2, &20), (&3, &30)]));
+        assert!((&m).into_iter().next_back() == Some((&3, &30))); // double-ended
+        assert!(m.keys().eq(&[1, 2, 3]));
+        assert!(m.values().eq(&[10, 20, 30]));
+        assert_eq!(m.first_key_value(), Some((&1, &10)));
+        assert_eq!(m.last_key_value(), Some((&3, &30)));
+        // by-value consumption yields owned entries.
+        let owned: Vec<(i32, i32)> = m.into_iter().collect();
+        assert_eq!(owned, &[(1, 10), (2, 20), (3, 30)]);
+
+        let um: UnsortedMap<Vec<(i32, i32)>> =
+            UnsortedMap::try_from_iter([(1, 10), (2, 20)]).unwrap();
+        assert_eq!(um.iter().count(), 2);
+        assert_eq!(um.keys().count(), 2);
+    }
+
+    #[test]
+    fn values_mut_and_iter_mut_update_in_place() {
+        let mut m: SortedMap<Vec<(i32, i32)>> =
+            SortedMap::try_from_iter([(1, 10), (2, 20)]).unwrap();
+        for v in m.values_mut() {
+            *v += 1;
+        }
+        assert_eq!(m.as_slice(), &[(1, 11), (2, 21)]);
+        for (k, v) in m.iter_mut() {
+            *v += *k;
+        }
+        assert_eq!(m.as_slice(), &[(1, 12), (2, 23)]);
+    }
+
+    #[test]
+    fn retain_filters_and_can_mutate_kept_values() {
+        let mut m: SortedMap<Vec<(i32, i32)>> =
+            SortedMap::try_from_iter([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
+        m.retain(|k, v| {
+            *v += 1; // mutate every visited value, keep even keys only
+            k % 2 == 0
+        });
+        assert_eq!(m.as_slice(), &[(2, 21), (4, 41)]); // key order preserved
+
+        let mut um: UnsortedMap<Vec<(i32, i32)>> =
+            UnsortedMap::try_from_iter([(1, 10), (2, 20), (3, 30)]).unwrap();
+        um.retain(|k, _| *k != 2);
+        assert_eq!(um.len(), 2);
+        assert!(!um.contains_key(&2));
+    }
+
+    #[test]
+    fn range_returns_key_bounded_subslice() {
+        let m: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (3, "c"), (5, "e"), (7, "g")]).unwrap();
+        assert_eq!(m.range(3..7), &[(3, "c"), (5, "e")]);
+        assert_eq!(m.range(..=3), &[(1, "a"), (3, "c")]);
+        assert_eq!(m.range(4..), &[(5, "e"), (7, "g")]);
+        assert_eq!(m.range(..), m.as_slice());
     }
 
     #[test]

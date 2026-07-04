@@ -1,4 +1,4 @@
-//! The [`ColumnEntry`] API for [`ColumnMap`](crate::ColumnMap) and
+//! The [`ColumnEntry`] API for [`UnsortedColumnMap`](crate::UnsortedColumnMap) and
 //! [`SortedColumnMap`](crate::SortedColumnMap): **one** key lookup for a
 //! read-modify-write, the two-store (struct-of-arrays) counterpart of the
 //! single-store [`Entry`](crate::Entry).

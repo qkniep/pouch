@@ -2,8 +2,8 @@ use pouch::*;
 
 #[test]
 fn vec_set_unbounded() {
-    // VecSet is Unbounded -> infallible `insert` is available.
-    let mut s: VecSet<u64> = SortedSet::new();
+    // Vec is Unbounded -> infallible `insert` is available.
+    let mut s: SortedSet<Vec<u64>> = SortedSet::new();
     assert!(s.insert(5));
     assert!(s.insert(1));
     assert!(s.insert(3));
@@ -17,7 +17,7 @@ fn vec_set_unbounded() {
 
 #[test]
 fn arrayvec_fixed_capacity() {
-    let mut s: ArraySet<u64, 3> = SortedSet::new();
+    let mut s: SortedSet<arrayvec::ArrayVec<u64, 3>> = SortedSet::new();
     assert_eq!(s.capacity(), Some(3));
     assert_eq!(s.try_insert(5), Ok(true));
     assert_eq!(s.try_insert(1), Ok(true));
@@ -34,7 +34,7 @@ fn arrayvec_fixed_capacity() {
 
 #[test]
 fn heapless_sorted_via_rotate() {
-    let mut s: HeaplessSet<u64, 4> = SortedSet::new();
+    let mut s: SortedSet<heapless::Vec<u64, 4>> = SortedSet::new();
     for x in [3u64, 1, 4, 2] {
         assert_eq!(s.try_insert(x), Ok(true));
     }
@@ -46,7 +46,7 @@ fn heapless_sorted_via_rotate() {
 #[test]
 fn smallvec_spills_and_stays_sorted() {
     // inline capacity 2; third insert spills to heap.
-    let mut s: SmallSet<u64, 2> = SortedSet::new();
+    let mut s: Set<u64, 2> = Set::new();
     assert!(s.insert(30));
     assert!(s.insert(10));
     assert!(s.insert(20));
@@ -77,7 +77,7 @@ fn capped_runtime_bound_over_vec() {
 
 #[test]
 fn sorted_map_replace_no_capacity() {
-    let mut m: VecMap<u64, &str> = SortedMap::new();
+    let mut m: SortedMap<Vec<(u64, &str)>> = SortedMap::new();
     assert_eq!(m.try_insert(2, "two"), Ok(None));
     assert_eq!(m.try_insert(1, "one"), Ok(None));
     assert_eq!(m.get(&1), Some(&"one"));
@@ -100,8 +100,8 @@ fn capped_map_replace_at_cap() {
 
 #[test]
 fn unsorted_set_basic() {
-    // UnsortedVecSet is Unbounded -> infallible `insert`.
-    let mut s: UnsortedVecSet<u64> = UnsortedSet::new();
+    // Vec is Unbounded -> infallible `insert`.
+    let mut s: UnsortedSet<Vec<u64>> = UnsortedSet::new();
     assert!(s.insert(5));
     assert!(s.insert(1));
     assert!(s.insert(3));
@@ -145,7 +145,7 @@ fn unsorted_set_needs_only_eq_not_ord() {
 
 #[test]
 fn unsorted_map_insert_get_remove() {
-    let mut m: UnsortedVecMap<u64, &str> = UnsortedMap::new();
+    let mut m: UnsortedMap<Vec<(u64, &str)>> = UnsortedMap::new();
     assert_eq!(m.try_insert(2, "two"), Ok(None));
     assert_eq!(m.try_insert(1, "one"), Ok(None));
     assert_eq!(m.get(&1), Some(&"one"));
@@ -175,7 +175,8 @@ fn unsorted_map_replace_at_cap() {
 fn column_map_two_backends_insert_get_remove() {
     // The struct-of-arrays map over *different* backends per column: inline keys
     // (SmallVec), heap values (Vec). Both Unbounded, so `extend` is available.
-    let mut m: ColumnMap<smallvec::SmallVec<[u64; 4]>, Vec<&str>> = ColumnMap::new();
+    let mut m: UnsortedColumnMap<smallvec::SmallVec<[u64; 4]>, Vec<&str>> =
+        UnsortedColumnMap::new();
     m.extend([(2, "two"), (1, "one")]);
     assert_eq!(m.get(&1), Some(&"one"));
     assert_eq!(m.try_insert(2, "TWO"), Ok(Some("two"))); // replace, no capacity
@@ -191,8 +192,8 @@ fn column_map_two_backends_insert_get_remove() {
 #[test]
 fn column_map_combined_cap_is_min() {
     // Cap only the value column at 2; the map is bounded at 2 (min of the columns).
-    let mut m: ColumnMap<Vec<u64>, Capped<Vec<u64>>> =
-        ColumnMap::from_store(Vec::new(), Capped::with_capacity(2));
+    let mut m: UnsortedColumnMap<Vec<u64>, Capped<Vec<u64>>> =
+        UnsortedColumnMap::from_store(Vec::new(), Capped::with_capacity(2));
     assert_eq!(m.capacity(), Some(2));
     m.try_insert(1, 10).unwrap();
     m.try_insert(2, 20).unwrap();

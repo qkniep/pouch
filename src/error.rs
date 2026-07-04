@@ -5,9 +5,16 @@ use core::fmt;
 /// Returned when a bounded store is at logical capacity. Hands the rejected
 /// element back (mirrors `arrayvec::CapacityError<T>` / heapless `Result<(), T>`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct CapacityError<T>(pub T);
+pub struct CapacityError<T>(pub(crate) T);
 
 impl<T> CapacityError<T> {
+    /// Wrap a rejected element. For third-party [`StoreMut`](crate::store::StoreMut)
+    /// implementations, whose `try_insert_at` must hand the value back on overflow;
+    /// everything in-crate constructs the error directly.
+    pub fn new(value: T) -> Self {
+        CapacityError(value)
+    }
+
     /// Recover the element that could not be inserted.
     pub fn into_inner(self) -> T {
         self.0
@@ -29,25 +36,32 @@ impl<T> fmt::Display for CapacityError<T> {
 #[cfg(feature = "std")]
 impl<T> std::error::Error for CapacityError<T> {}
 
-/// Error from a fallible *bulk* map build (`SortedMap::try_from_iter` and its
-/// siblings), which require every key to be unique. Every arm hands the rejected
-/// entry back, like [`CapacityError`]. (One-at-a-time inserts and `extend` are
-/// last-wins, so they never raise `DuplicateKey` — only `CapacityError`.)
+/// Error from a fallible *bulk* build (`try_from_iter` / `try_from_sorted_iter`
+/// on any set or map). Every arm hands the rejected element back, like
+/// [`CapacityError`]. One error type covers all the builders; not every arm is
+/// reachable from every builder:
+///
+/// * [`Capacity`](BuildError::Capacity) — any builder over a bounded store.
+/// * [`DuplicateKey`](BuildError::DuplicateKey) — **map** builders only. A duplicate
+///   *key* is ambiguous (which value wins?), so map construction rejects it; set builders
+///   dedup silently and never return this. The sequential ops (`try_insert`,
+///   `try_extend`, `Extend`) stay last-wins and never raise it either.
+/// * [`Unsorted`](BuildError::Unsorted) — `try_from_sorted_iter` only, which enforces its
+///   ascending-order promise in every build profile (unlike `from_store`, the sorted
+///   builder does not trust its input).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BuildError<T> {
-    /// The store reached its logical capacity before every entry was inserted.
+    /// The store reached its logical capacity before every element was inserted.
     Capacity(T),
     /// Two entries shared a key; the second one is handed back.
     DuplicateKey(T),
-    /// `try_from_sorted_iter` was given keys that were not in ascending order; the
-    /// offending entry (smaller than its predecessor) is handed back. Enforced in
-    /// every build profile — unlike `from_store`, the sorted builder does not trust
-    /// its input.
+    /// `try_from_sorted_iter` was given input that was not in ascending order;
+    /// the offending element (smaller than its predecessor) is handed back.
     Unsorted(T),
 }
 
 impl<T> BuildError<T> {
-    /// Recover the entry that could not be inserted.
+    /// Recover the element that could not be inserted.
     pub fn into_inner(self) -> T {
         match self {
             BuildError::Capacity(t) | BuildError::DuplicateKey(t) | BuildError::Unsorted(t) => t,
@@ -76,62 +90,10 @@ impl<T> fmt::Display for BuildError<T> {
         f.write_str(match self {
             BuildError::Capacity(_) => "store is at logical capacity",
             BuildError::DuplicateKey(_) => "duplicate key in bulk build",
-            BuildError::Unsorted(_) => "input keys were not in ascending order",
+            BuildError::Unsorted(_) => "input was not in ascending order",
         })
     }
 }
 
 #[cfg(feature = "std")]
 impl<T> std::error::Error for BuildError<T> {}
-
-/// Error from a fallible *sorted* set build ([`SortedSet::try_from_sorted_iter`]),
-/// which can fail two ways: the store fills, or the input is not ascending. A set
-/// silently dedups adjacent equal values, so — unlike [`BuildError`] for maps —
-/// there is no duplicate arm. Both arms hand the rejected element back.
-///
-/// [`SortedSet::try_from_sorted_iter`]: crate::SortedSet::try_from_sorted_iter
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SortedBuildError<T> {
-    /// The store reached its logical capacity before every element was inserted.
-    Capacity(T),
-    /// The input was not in ascending order; the offending element (smaller than
-    /// its predecessor) is handed back. Enforced in every build profile — unlike
-    /// `from_store`, the sorted builder does not trust its input.
-    Unsorted(T),
-}
-
-impl<T> SortedBuildError<T> {
-    /// Recover the element that could not be inserted.
-    pub fn into_inner(self) -> T {
-        match self {
-            SortedBuildError::Capacity(t) | SortedBuildError::Unsorted(t) => t,
-        }
-    }
-}
-
-impl<T> From<CapacityError<T>> for SortedBuildError<T> {
-    fn from(err: CapacityError<T>) -> Self {
-        SortedBuildError::Capacity(err.0)
-    }
-}
-
-impl<T> fmt::Debug for SortedBuildError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            SortedBuildError::Capacity(_) => "SortedBuildError::Capacity",
-            SortedBuildError::Unsorted(_) => "SortedBuildError::Unsorted",
-        })
-    }
-}
-
-impl<T> fmt::Display for SortedBuildError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            SortedBuildError::Capacity(_) => "store is at logical capacity",
-            SortedBuildError::Unsorted(_) => "input was not in ascending order",
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T> std::error::Error for SortedBuildError<T> {}

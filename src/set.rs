@@ -4,8 +4,34 @@
 //! [`UnsortedSet`] appends and swap-removes (`O(1)` mutation, `O(n)` search) and
 //! needs only `Eq` rather than `Ord`.
 
-use crate::error::{CapacityError, SortedBuildError};
-use crate::store::{append_all, push, Store, StoreMut, StoreNew, Unbounded};
+use core::ops::{Bound, RangeBounds};
+
+use crate::error::{BuildError, CapacityError};
+use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
+
+/// Resolve a `RangeBounds` over a sorted slice into index bounds via
+/// `partition_point`, projecting each element to its search key with `key`
+/// (identity for sets, `.0` for maps). Shared by the sorted collections'
+/// `range` accessors.
+pub(crate) fn subrange<T, Q: Ord, R: RangeBounds<Q>>(
+    slice: &[T],
+    range: R,
+    key: impl Fn(&T) -> &Q,
+) -> &[T] {
+    let start = match range.start_bound() {
+        Bound::Unbounded => 0,
+        Bound::Included(q) => slice.partition_point(|e| key(e) < q),
+        Bound::Excluded(q) => slice.partition_point(|e| key(e) <= q),
+    };
+    let end = match range.end_bound() {
+        Bound::Unbounded => slice.len(),
+        Bound::Included(q) => slice.partition_point(|e| key(e) <= q),
+        Bound::Excluded(q) => slice.partition_point(|e| key(e) < q),
+    };
+    // An inverted range (start > end) falls through to the slice indexing
+    // panic, mirroring `BTreeMap::range`.
+    &slice[start..end]
+}
 
 /// Re-establish the sorted-set invariant over a store filled in arbitrary order:
 /// `sort_unstable` (allocation-free, so `core`-only) then drop adjacent
@@ -87,11 +113,43 @@ impl<S: Store> SortedSet<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
+    /// Iterate the elements in ascending order.
+    pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
+        self.store.as_slice().iter()
+    }
+    /// The smallest element, or `None` if empty. `O(1)`.
+    pub fn first(&self) -> Option<&S::Elem> {
+        self.store.as_slice().first()
+    }
+    /// The largest element, or `None` if empty. `O(1)`.
+    pub fn last(&self) -> Option<&S::Elem> {
+        self.store.as_slice().last()
+    }
     pub fn contains(&self, value: &S::Elem) -> bool
     where
         S::Elem: Ord,
     {
         self.store.as_slice().binary_search(value).is_ok()
+    }
+    /// The elements within `range`, as a subslice of the sorted store — the
+    /// sorted layout's native range query. Two `O(log n)` bound searches, zero
+    /// copies; iterate, index, or re-slice the result freely.
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let s: Set<u32> = (0..10).collect();
+    /// assert_eq!(s.range(3..6), &[3, 4, 5]);
+    /// assert_eq!(s.range(7..), &[7, 8, 9]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range's start is greater than its end.
+    pub fn range<R: RangeBounds<S::Elem>>(&self, range: R) -> &[S::Elem]
+    where
+        S::Elem: Ord,
+    {
+        subrange(self.store.as_slice(), range, |e| e)
     }
 }
 
@@ -100,6 +158,11 @@ impl<S: StoreMut> SortedSet<S> {
     /// no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Keep only the elements for which `f` returns `true`, preserving order.
+    /// `O(n)`, and needs no `Ord` bound — dropping elements can't unsort the rest.
+    pub fn retain<F: FnMut(&S::Elem) -> bool>(&mut self, mut f: F) {
+        retain_in(&mut self.store, |e| f(e));
     }
 }
 
@@ -178,10 +241,11 @@ where
     ///
     /// Unlike [`from_store`](Self::from_store), the ascending-order promise is
     /// enforced in every build profile: an item smaller than its predecessor is
-    /// returned as [`SortedBuildError::Unsorted`] rather than silently trusted. The
+    /// returned as [`BuildError::Unsorted`] rather than silently trusted. The
     /// check is one comparison per item — the same one the dedup already needs. A
-    /// bounded store that fills yields [`SortedBuildError::Capacity`].
-    pub fn try_from_sorted_iter<I>(iter: I) -> Result<Self, SortedBuildError<S::Elem>>
+    /// bounded store that fills yields [`BuildError::Capacity`]. (A set build
+    /// never returns [`BuildError::DuplicateKey`] — duplicates dedup silently.)
+    pub fn try_from_sorted_iter<I>(iter: I) -> Result<Self, BuildError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
     {
@@ -189,7 +253,7 @@ where
         for value in iter {
             if let Some(prev) = store.as_slice().last() {
                 if value < *prev {
-                    return Err(SortedBuildError::Unsorted(value));
+                    return Err(BuildError::Unsorted(value));
                 }
                 if *prev == value {
                     continue; // adjacent duplicate — sets dedup silently
@@ -226,12 +290,16 @@ where
     {
         match Self::try_from_sorted_iter(iter) {
             Ok(set) => set,
-            // Capacity can't happen on an Unbounded store; misordered input can —
-            // and an infallible builder has no error channel, so it must panic.
-            Err(SortedBuildError::Capacity(_)) => {
+            // Capacity can't happen on an Unbounded store and a set build dedups
+            // rather than erroring; misordered input can happen — and an
+            // infallible builder has no error channel, so it must panic.
+            Err(BuildError::Capacity(_)) => {
                 unreachable!("Unbounded store reported a capacity failure")
             }
-            Err(SortedBuildError::Unsorted(_)) => {
+            Err(BuildError::DuplicateKey(_)) => {
+                unreachable!("set builds dedup duplicates silently")
+            }
+            Err(BuildError::Unsorted(_)) => {
                 panic!("from_sorted_iter: input was not in ascending order")
             }
         }
@@ -250,6 +318,30 @@ where
             Ok(set) => set,
             Err(_) => unreachable!("Unbounded store reported a capacity failure"),
         }
+    }
+}
+
+impl<'a, S: Store> IntoIterator for &'a SortedSet<S> {
+    type Item = &'a S::Elem;
+    type IntoIter = core::slice::Iter<'a, S::Elem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consume the set, yielding its elements in ascending order. Available when
+/// the backing store is itself consumable into its elements (every owning
+/// backend is; a borrowed `&[T]` store is not — it can't give up owned values).
+impl<S> IntoIterator for SortedSet<S>
+where
+    S: Store + IntoIterator<Item = <S as Store>::Elem>,
+{
+    type Item = S::Elem;
+    type IntoIter = <S as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.store.into_iter()
     }
 }
 
@@ -324,6 +416,10 @@ impl<S: Store> UnsortedSet<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
+    /// Iterate the elements, in no particular order.
+    pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
+        self.store.as_slice().iter()
+    }
     pub fn contains(&self, value: &S::Elem) -> bool
     where
         S::Elem: Eq,
@@ -337,6 +433,11 @@ impl<S: StoreMut> UnsortedSet<S> {
     /// no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
+    }
+    /// Keep only the elements for which `f` returns `true`. `O(n)`; needs no
+    /// `Eq` bound.
+    pub fn retain<F: FnMut(&S::Elem) -> bool>(&mut self, mut f: F) {
+        retain_in(&mut self.store, |e| f(e));
     }
 }
 
@@ -429,6 +530,29 @@ where
     }
 }
 
+impl<'a, S: Store> IntoIterator for &'a UnsortedSet<S> {
+    type Item = &'a S::Elem;
+    type IntoIter = core::slice::Iter<'a, S::Elem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consume the set, yielding its elements in no particular order. Available
+/// when the backing store is itself consumable into its elements.
+impl<S> IntoIterator for UnsortedSet<S>
+where
+    S: Store + IntoIterator<Item = <S as Store>::Elem>,
+{
+    type Item = S::Elem;
+    type IntoIter = <S as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.store.into_iter()
+    }
+}
+
 impl<S> Extend<S::Elem> for UnsortedSet<S>
 where
     S: StoreMut + Unbounded,
@@ -448,7 +572,7 @@ where
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::{SortedBuildError, SortedSet, UnsortedSet};
+    use crate::{BuildError, SortedSet, UnsortedSet};
 
     #[test]
     fn try_from_iter_sorts_and_dedups() {
@@ -503,9 +627,62 @@ mod alloc_tests {
         let err = SortedSet::<Vec<i32>>::try_from_sorted_iter([1, 3, 2])
             .expect_err("3 then 2 is descending");
         match err {
-            SortedBuildError::Unsorted(x) => assert_eq!(x, 2),
-            SortedBuildError::Capacity(_) => panic!("expected an unsorted error"),
+            BuildError::Unsorted(x) => assert_eq!(x, 2),
+            BuildError::Capacity(_) | BuildError::DuplicateKey(_) => {
+                panic!("expected an unsorted error")
+            }
         }
+    }
+
+    #[test]
+    fn iter_and_into_iter_yield_sorted_elements() {
+        let set: SortedSet<Vec<i32>> = [3, 1, 2].into_iter().collect();
+        // by-ref: `iter()` and `&set` are the same slice iterator.
+        assert!(set.iter().eq(&[1, 2, 3]));
+        let doubled: Vec<i32> = (&set).into_iter().map(|x| x * 2).collect();
+        assert_eq!(doubled, &[2, 4, 6]);
+        // by-value: consuming the set yields owned elements, still ascending.
+        let owned: Vec<i32> = set.into_iter().collect();
+        assert_eq!(owned, &[1, 2, 3]);
+
+        let unsorted: UnsortedSet<Vec<i32>> = [3, 1, 2].into_iter().collect();
+        assert_eq!(unsorted.iter().count(), 3);
+        let mut owned: Vec<i32> = unsorted.into_iter().collect();
+        owned.sort_unstable();
+        assert_eq!(owned, &[1, 2, 3]);
+    }
+
+    #[test]
+    fn first_last_and_range() {
+        let set: SortedSet<Vec<i32>> = SortedSet::from_sorted_iter([1, 3, 5, 7, 9]);
+        assert_eq!(set.first(), Some(&1));
+        assert_eq!(set.last(), Some(&9));
+        // range is a subslice: half-open, inclusive, and open-ended bounds, with
+        // bounds that fall between elements.
+        assert_eq!(set.range(3..7), &[3, 5]);
+        assert_eq!(set.range(3..=7), &[3, 5, 7]);
+        assert_eq!(set.range(..4), &[1, 3]);
+        assert_eq!(set.range(4..), &[5, 7, 9]);
+        assert_eq!(set.range(..), &[1, 3, 5, 7, 9]);
+        assert_eq!(set.range(4..4), &[] as &[i32]);
+
+        let empty: SortedSet<Vec<i32>> = SortedSet::new();
+        assert_eq!(empty.first(), None);
+        assert_eq!(empty.range(..), &[] as &[i32]);
+    }
+
+    #[test]
+    fn retain_keeps_matching_elements_in_order() {
+        let mut set: SortedSet<Vec<i32>> = (1..=6).collect();
+        set.retain(|x| x % 2 == 0);
+        assert_eq!(set.as_slice(), &[2, 4, 6]); // still sorted
+        set.retain(|_| false);
+        assert!(set.is_empty());
+
+        let mut unsorted: UnsortedSet<Vec<i32>> = (1..=6).collect();
+        unsorted.retain(|x| x % 2 == 1);
+        assert_eq!(unsorted.len(), 3);
+        assert!(unsorted.contains(&1) && unsorted.contains(&3) && unsorted.contains(&5));
     }
 
     #[test]

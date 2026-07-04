@@ -2,7 +2,7 @@
 //! unsorted map.
 //!
 //! [`UnsortedMap`](crate::UnsortedMap) stores `Elem = (K, V)` pairs interleaved
-//! in one store (array-of-structs). [`ColumnMap`] instead keeps keys and values
+//! in one store (array-of-structs). [`UnsortedColumnMap`] instead keeps keys and values
 //! in *two* parallel stores — `keys: SK` (`Elem = K`) and `values: SV` (`Elem =
 //! V`), length-locked so `keys[i]` pairs with `values[i]`. A key lookup then
 //! scans a dense `[K]` slice instead of reading the key out of every `(K, V)`
@@ -19,12 +19,12 @@
 //! The trade is deliberate and is why this is a separate type, not a tweak to
 //! `UnsortedMap`:
 //!   * no `as_slice() -> &[(K, V)]`, since the pairs don't exist contiguously — enumerate
-//!     via [`keys`](ColumnMap::keys) / [`values`](ColumnMap::values), which `zip` back
-//!     together;
-//!   * [`from_store`](ColumnMap::from_store) takes two stores (no zero-copy wrap of an
-//!     existing `Vec<(K, V)>`);
-//!   * two backends to name, and the effective [`capacity`](ColumnMap::capacity) is the
-//!     `min` of the two columns' bounds.
+//!     via [`keys`](UnsortedColumnMap::keys) / [`values`](UnsortedColumnMap::values),
+//!     which `zip` back together;
+//!   * [`from_store`](UnsortedColumnMap::from_store) takes two stores (no zero-copy wrap
+//!     of an existing `Vec<(K, V)>`);
+//!   * two backends to name, and the effective [`capacity`](UnsortedColumnMap::capacity)
+//!     is the `min` of the two columns' bounds.
 //!
 //! [`SortedColumnMap`](crate::SortedColumnMap) is the sorted twin (the same
 //! two-store layout, keys kept ordered for an `O(log n)` binary search). It
@@ -52,7 +52,7 @@ pub(crate) fn combined_capacity(a: Option<usize>, b: Option<usize>) -> Option<us
 }
 
 /// Index of the first slot in `keys` equal to `needle`, or `None` — the dense
-/// key-column scan behind every [`ColumnMap`] lookup.
+/// key-column scan behind every [`UnsortedColumnMap`] lookup.
 ///
 /// Structured as a fixed-trip OR-reduction rather than a plain
 /// `iter().position()`: each `LANES`-wide chunk is scanned in full — no early
@@ -101,27 +101,27 @@ fn chunked_position<K: Eq>(keys: &[K], needle: &K) -> Option<usize> {
 // in different orders, so a structural derive would wrongly call them unequal.
 // The sorted twin derives equality because its stored order is canonical.
 #[derive(Clone, Debug)]
-pub struct ColumnMap<SK, SV> {
+pub struct UnsortedColumnMap<SK, SV> {
     keys: SK,
     values: SV,
 }
 
-impl<SK: StoreNew, SV: StoreNew> ColumnMap<SK, SV> {
+impl<SK: StoreNew, SV: StoreNew> UnsortedColumnMap<SK, SV> {
     pub fn new() -> Self {
-        ColumnMap {
+        UnsortedColumnMap {
             keys: SK::new(),
             values: SV::new(),
         }
     }
 }
 
-impl<SK: StoreNew, SV: StoreNew> Default for ColumnMap<SK, SV> {
+impl<SK: StoreNew, SV: StoreNew> Default for UnsortedColumnMap<SK, SV> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<SK: Store, SV: Store> ColumnMap<SK, SV> {
+impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     pub fn len(&self) -> usize {
         self.keys.len()
     }
@@ -145,7 +145,7 @@ impl<SK: Store, SV: Store> ColumnMap<SK, SV> {
     }
 }
 
-impl<SK: StoreMut, SV: StoreMut> ColumnMap<SK, SV> {
+impl<SK: StoreMut, SV: StoreMut> UnsortedColumnMap<SK, SV> {
     /// Remove every entry, clearing both columns and keeping their allocated
     /// capacity. Needs no `Eq` bound — it only truncates the stores.
     pub fn clear(&mut self) {
@@ -154,7 +154,7 @@ impl<SK: StoreMut, SV: StoreMut> ColumnMap<SK, SV> {
     }
 }
 
-impl<K, V, SK, SV> ColumnMap<SK, SV>
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
 where
     SK: Store<Elem = K>,
     SV: Store<Elem = V>,
@@ -170,16 +170,16 @@ where
         debug_assert_eq!(
             keys.len(),
             values.len(),
-            "ColumnMap::from_store: key and value columns must have equal length",
+            "UnsortedColumnMap::from_store: key and value columns must have equal length",
         );
         debug_assert!(
             {
                 let ks = keys.as_slice();
                 !(1..ks.len()).any(|i| ks[..i].contains(&ks[i]))
             },
-            "ColumnMap::from_store: keys must be free of duplicates",
+            "UnsortedColumnMap::from_store: keys must be free of duplicates",
         );
-        ColumnMap { keys, values }
+        UnsortedColumnMap { keys, values }
     }
 
     /// Index of the entry whose key equals `key`, or `None`. Every key lookup —
@@ -216,7 +216,7 @@ where
     }
 }
 
-impl<K, V, SK, SV> ColumnMap<SK, SV>
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
 where
     SK: StoreMut<Elem = K>,
     SV: StoreMut<Elem = V>,
@@ -309,7 +309,7 @@ where
     }
 }
 
-impl<K, V, SK, SV> ColumnMap<SK, SV>
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
 where
     SK: StoreMut<Elem = K> + StoreNew,
     SV: StoreMut<Elem = V> + StoreNew,
@@ -337,7 +337,24 @@ where
     }
 }
 
-impl<K, V, SK, SV> Extend<(K, V)> for ColumnMap<SK, SV>
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K> + Unbounded,
+    SV: StoreMut<Elem = V> + Unbounded,
+    K: Eq,
+{
+    /// Infallible insert-or-replace, returning the previous value — available
+    /// only when **both** columns are [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.try_insert(key, value) {
+            Ok(prev) => prev,
+            Err(_) => unreachable!("Unbounded columns reported a capacity failure"),
+        }
+    }
+}
+
+impl<K, V, SK, SV> Extend<(K, V)> for UnsortedColumnMap<SK, SV>
 where
     SK: StoreMut<Elem = K> + Unbounded,
     SV: StoreMut<Elem = V> + Unbounded,
@@ -362,11 +379,11 @@ mod alloc_tests {
     use alloc::vec::Vec;
 
     use crate::error::BuildError;
-    use crate::{ColumnEntry, ColumnMap};
+    use crate::{ColumnEntry, UnsortedColumnMap};
 
     #[test]
     fn insert_get_and_replace() {
-        let mut m: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         assert_eq!(m.try_insert(1, "a"), Ok(None));
         assert_eq!(m.try_insert(2, "b"), Ok(None));
         assert_eq!(m.get(&1), Some(&"a"));
@@ -382,7 +399,7 @@ mod alloc_tests {
 
     #[test]
     fn remove_swaps_and_keeps_columns_aligned() {
-        let mut m: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         m.try_extend([(1, "a"), (2, "b"), (3, "c")]).unwrap();
         // Swap-remove pulls the last entry (3, "c") into slot 0 — in *both* columns.
         assert_eq!(m.remove(&1), Some("a"));
@@ -397,8 +414,9 @@ mod alloc_tests {
 
     #[test]
     fn try_from_iter_rejects_duplicate_key() {
-        let err = ColumnMap::<Vec<i32>, Vec<&str>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-            .expect_err("duplicate key 1");
+        let err =
+            UnsortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
+                .expect_err("duplicate key 1");
         // Detected at the scan before any push, so the third entry is handed back.
         match err {
             BuildError::DuplicateKey(entry) => assert_eq!(entry, (1, "z")),
@@ -410,7 +428,7 @@ mod alloc_tests {
 
     #[test]
     fn extend_is_last_wins() {
-        let mut m: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         m.extend([(1, "a"), (2, "b")]);
         m.extend([(2, "B"), (3, "c")]); // key 2 overridden
         assert_eq!(m.len(), 3);
@@ -421,7 +439,7 @@ mod alloc_tests {
     #[test]
     fn entry_or_insert_inserts_then_updates_in_one_lookup() {
         // The headline use: tally occurrences with a single scan per item.
-        let mut counts: ColumnMap<Vec<&str>, Vec<u32>> = ColumnMap::new();
+        let mut counts: UnsortedColumnMap<Vec<&str>, Vec<u32>> = UnsortedColumnMap::new();
         for w in ["a", "b", "a", "c", "a", "b"] {
             *counts.entry(w).or_insert(0) += 1;
         }
@@ -435,7 +453,7 @@ mod alloc_tests {
 
     #[test]
     fn entry_and_modify_then_or_insert() {
-        let mut m: ColumnMap<Vec<i32>, Vec<i32>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<i32>> = UnsortedColumnMap::new();
         // Vacant: `and_modify` is a no-op, `or_insert` seeds the value.
         m.entry(1).and_modify(|v| *v += 100).or_insert(10);
         assert_eq!(m.get(&1), Some(&10));
@@ -446,7 +464,7 @@ mod alloc_tests {
 
     #[test]
     fn entry_occupied_insert_and_remove_swaps_columns() {
-        let mut m: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         m.try_extend([(1, "a"), (2, "b"), (3, "c")]).unwrap();
         match m.entry(1) {
             ColumnEntry::Occupied(mut e) => {
@@ -463,7 +481,7 @@ mod alloc_tests {
 
     #[test]
     fn entry_vacant_into_key_inserts_nothing() {
-        let mut m: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         match m.entry(7) {
             ColumnEntry::Vacant(e) => {
                 assert_eq!(e.key(), &7);
@@ -476,7 +494,7 @@ mod alloc_tests {
 
     #[test]
     fn get_mut_and_clear() {
-        let mut m: ColumnMap<Vec<i32>, Vec<i32>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<i32>> = UnsortedColumnMap::new();
         m.try_extend([(1, 10), (2, 20)]).unwrap();
         *m.get_mut(&2).unwrap() += 5;
         assert_eq!(m.get(&2), Some(&25));
@@ -491,8 +509,8 @@ mod alloc_tests {
 
     #[test]
     fn clone_is_independent() {
-        // ColumnMap derives Clone but not PartialEq (order-sensitive).
-        let mut a: ColumnMap<Vec<i32>, Vec<&str>> = ColumnMap::new();
+        // UnsortedColumnMap derives Clone but not PartialEq (order-sensitive).
+        let mut a: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
         a.try_extend([(1, "a"), (2, "b")]).unwrap();
         let b = a.clone();
         a.try_insert(3, "c").unwrap();
@@ -507,15 +525,20 @@ mod alloc_tests {
     #[test]
     #[should_panic(expected = "equal length")]
     fn from_store_rejects_unequal_columns() {
-        let _ = ColumnMap::<Vec<i32>, Vec<&str>>::from_store(Vec::from([1, 2]), Vec::from(["a"]));
+        let _ = UnsortedColumnMap::<Vec<i32>, Vec<&str>>::from_store(
+            Vec::from([1, 2]),
+            Vec::from(["a"]),
+        );
     }
 
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "free of duplicates")]
     fn from_store_rejects_duplicate_keys() {
-        let _ =
-            ColumnMap::<Vec<i32>, Vec<&str>>::from_store(Vec::from([1, 1]), Vec::from(["a", "z"]));
+        let _ = UnsortedColumnMap::<Vec<i32>, Vec<&str>>::from_store(
+            Vec::from([1, 1]),
+            Vec::from(["a", "z"]),
+        );
     }
 }
 
@@ -525,11 +548,11 @@ mod alloc_tests {
 mod heapless_tests {
     use heapless::Vec;
 
-    use crate::ColumnMap;
+    use crate::UnsortedColumnMap;
 
     #[test]
     fn capacity_reports_fixed_bound() {
-        let m: ColumnMap<Vec<u8, 4>, Vec<u8, 4>> = ColumnMap::new();
+        let m: UnsortedColumnMap<Vec<u8, 4>, Vec<u8, 4>> = UnsortedColumnMap::new();
         assert_eq!(m.capacity(), Some(4));
     }
 
@@ -538,7 +561,7 @@ mod heapless_tests {
         // Cap 2, full. A bounded column has no infallible `or_insert`;
         // `or_try_insert` updates an occupied slot (no capacity used) but rejects
         // a new key against the combined cap.
-        let mut m: ColumnMap<Vec<u8, 2>, Vec<u8, 2>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<u8, 2>, Vec<u8, 2>> = UnsortedColumnMap::new();
         m.try_extend([(1, 10), (2, 20)]).unwrap();
 
         // Occupied update in place succeeds even at capacity.
@@ -556,7 +579,7 @@ mod heapless_tests {
 
     #[test]
     fn try_insert_overflow_hands_back_the_pair() {
-        let mut m: ColumnMap<Vec<u8, 2>, Vec<u8, 2>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<Vec<u8, 2>, Vec<u8, 2>> = UnsortedColumnMap::new();
         m.try_insert(1, 10).unwrap();
         m.try_insert(2, 20).unwrap();
         // A genuinely new key at the bound errors, returning the whole pair; nothing
@@ -577,12 +600,12 @@ mod hetero_tests {
 
     use heapless::Vec as HVec;
 
-    use crate::ColumnMap;
+    use crate::UnsortedColumnMap;
 
     #[test]
     fn capacity_is_min_of_the_two_columns() {
         // Bounded keys (cap 2), unbounded values: the map is bounded at 2.
-        let mut m: ColumnMap<HVec<u8, 2>, Vec<u16>> = ColumnMap::new();
+        let mut m: UnsortedColumnMap<HVec<u8, 2>, Vec<u16>> = UnsortedColumnMap::new();
         assert_eq!(m.capacity(), Some(2));
         m.try_insert(1, 10).unwrap();
         m.try_insert(2, 20).unwrap();

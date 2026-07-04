@@ -85,6 +85,18 @@ impl<S: StoreMut> StoreMut for Capped<S> {
 
 // Capped is deliberately NOT `Unbounded`.
 
+/// Consuming iteration delegates to the inner store — the cap only constrains
+/// growth, not reads. Keeps a `Capped` store eligible for the collections'
+/// by-value `IntoIterator`.
+impl<S: IntoIterator> IntoIterator for Capped<S> {
+    type Item = S::Item;
+    type IntoIter = S::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

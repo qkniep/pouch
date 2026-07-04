@@ -166,6 +166,27 @@ impl<A: StoreNew, B: StoreNew<Elem = A::Elem>> StoreNew for Spill<A, B> {
 // boundlessness is what lets the collection layer expose an infallible `insert`.
 impl<A, B: Unbounded> Unbounded for Spill<A, B> {}
 
+/// Consuming iteration: migrate any still-inline elements into the spill tier
+/// (order-preserving, `O(n)`, cannot fail — the tier is empty and must hold at
+/// least the inline capacity), then yield the spill tier's iterator. One
+/// iterator type instead of an either-tier enum; the one-time move is paid only
+/// by a bag/set/map consumed before it ever spilled.
+impl<A, B> IntoIterator for Spill<A, B>
+where
+    A: StoreMut,
+    B: StoreMut<Elem = A::Elem> + IntoIterator<Item = A::Elem>,
+{
+    type Item = A::Elem;
+    type IntoIter = B::IntoIter;
+
+    fn into_iter(mut self) -> Self::IntoIter {
+        if !self.spilled {
+            self.migrate();
+        }
+        self.spill.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
