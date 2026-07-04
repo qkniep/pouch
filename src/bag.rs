@@ -23,9 +23,10 @@ use crate::error::CapacityError;
 use crate::set::chunked_contains;
 use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
 
-/// A sequence of values with duplicates allowed and no ordering or uniqueness
-/// invariant. The crate's lightest collection — `Vec`-like over any backend, with
-/// no bound on the element type.
+/// A sequence of values with duplicates allowed and no ordering or uniqueness invariant.
+///
+/// The crate's lightest collection — `Vec`-like over any backend, with no bound on the
+/// element type.
 // Derives `Clone` but not `PartialEq`/`Eq`: a bag's multiset equality is
 // order-independent, yet `swap_remove` lets two equal bags store their elements in
 // different orders, so a structural derive would wrongly call them unequal — the
@@ -49,9 +50,10 @@ impl<S: StoreNew> Default for Bag<S> {
 }
 
 impl<S: Store> Bag<S> {
-    /// Wraps a store as a bag. Every store is a valid bag (no invariant to uphold),
-    /// so this is infallible and needs no element bound — the cheapest of the
-    /// crate's `from_store` constructors.
+    /// Wraps a store as a bag.
+    ///
+    /// Every store is a valid bag (no invariant to uphold), so this is infallible and
+    /// needs no element bound — the cheapest of the crate's `from_store` constructors.
     pub fn from_store(store: S) -> Self {
         Bag { store }
     }
@@ -91,11 +93,12 @@ impl<S: Store> Bag<S> {
     pub fn get(&self, i: usize) -> Option<&S::Elem> {
         self.store.as_slice().get(i)
     }
-    /// Returns `true` if any element equals `value`. `O(n)` linear scan; gated on `Eq` so
-    /// the rest of the bag stays bound-free. `value` may be any borrowed form of the
-    /// element type (a `String` bag answers `contains("x")` without allocating),
-    /// with the usual [`Borrow`] contract that the borrowed form's `Eq` agrees
-    /// with the element type's.
+    /// Returns `true` if any element equals `value`.
+    ///
+    /// `O(n)` linear scan; gated on `Eq` so the rest of the bag stays bound-free. `value`
+    /// may be any borrowed form of the element type (a `String` bag answers
+    /// `contains("x")` without allocating), with the usual [`Borrow`] contract that the
+    /// borrowed form's `Eq` agrees with the element type's.
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q> + Eq,
@@ -104,6 +107,7 @@ impl<S: Store> Bag<S> {
         chunked_contains(self.store.as_slice(), value)
     }
     /// Returns how many elements equal `value` — the multiset multiplicity. `O(n)`.
+    ///
     /// `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
     pub fn count<Q>(&self, value: &Q) -> usize
@@ -120,8 +124,10 @@ impl<S: Store> Bag<S> {
 }
 
 impl<S: StoreMut> Bag<S> {
-    /// Returns a mutable slice of the elements, for in-place edits. A bag has no
-    /// invariant, so arbitrary mutation (reorder, overwrite) is always valid.
+    /// Returns a mutable slice of the elements, for in-place edits.
+    ///
+    /// A bag has no invariant, so arbitrary mutation (reorder, overwrite) is always
+    /// valid.
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
     }
@@ -129,9 +135,10 @@ impl<S: StoreMut> Bag<S> {
     pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, S::Elem> {
         self.store.as_mut_slice().iter_mut()
     }
-    /// Retains only the elements for which `f` returns `true`, preserving order.
-    /// `O(n)`. The predicate gets `&mut`, so it can edit the elements it keeps —
-    /// a bag has no invariant an edit could break.
+    /// Retains only the elements for which `f` returns `true`, preserving order. `O(n)`.
+    ///
+    /// The predicate gets `&mut`, so it can edit the elements it keeps — a bag has no
+    /// invariant an edit could break.
     pub fn retain<F: FnMut(&mut S::Elem) -> bool>(&mut self, f: F) {
         retain_in(&mut self.store, f);
     }
@@ -166,9 +173,10 @@ impl<S: StoreMut> Bag<S> {
         (len > 0).then(|| self.store.remove_at(len - 1))
     }
 
-    /// Removes and returns the element at `i` by swapping the last element into its
-    /// place — `O(1)`, but **does not preserve order**. Prefer this over
-    /// [`remove`](Self::remove) when order doesn't matter.
+    /// Removes and returns the element at `i` by swapping the last element into its place
+    /// — `O(1)`, but **does not preserve order**.
+    ///
+    /// Prefer this over [`remove`](Self::remove) when order doesn't matter.
     ///
     /// # Panics
     ///
@@ -187,8 +195,9 @@ impl<S: StoreMut> Bag<S> {
         self.store.remove_at(i)
     }
 
-    /// Appends every item from `iter` at the tail. `O(k)` for `k` items — a bare
-    /// append, no dedup.
+    /// Appends every item from `iter` at the tail.
+    ///
+    /// `O(k)` for `k` items — a bare append, no dedup.
     ///
     /// # Errors
     ///
@@ -204,8 +213,9 @@ impl<S: StoreMut> Bag<S> {
 }
 
 impl<S: StoreMut + StoreNew> Bag<S> {
-    /// Builds from an iterator by appending every item, in `O(n)`. No dedup and no
-    /// element bound — the simplest bulk build in the crate.
+    /// Builds from an iterator by appending every item, in `O(n)`.
+    ///
+    /// No dedup and no element bound — the simplest bulk build in the crate.
     ///
     /// # Errors
     ///
@@ -249,8 +259,9 @@ impl<'a, S: StoreMut> IntoIterator for &'a mut Bag<S> {
     }
 }
 
-/// Consumes the bag, yielding its elements in insertion order. Available when
-/// the backing store is itself consumable into its elements.
+/// Consumes the bag, yielding its elements in insertion order.
+///
+/// Available when the backing store is itself consumable into its elements.
 impl<S> IntoIterator for Bag<S>
 where
     S: Store + IntoIterator<Item = <S as Store>::Elem>,
@@ -267,8 +278,9 @@ impl<S> FromIterator<S::Elem> for Bag<S>
 where
     S: StoreMut + StoreNew + Unbounded,
 {
-    /// Collects an iterator into a bag — `O(n)`, no dedup, no element bound. Unlike the
-    /// maps (whose duplicate-key policy makes a fallible build), a bag's
+    /// Collects an iterator into a bag — `O(n)`, no dedup, no element bound.
+    ///
+    /// Unlike the maps (whose duplicate-key policy makes a fallible build), a bag's
     /// `FromIterator` can't fail on an [`Unbounded`] store.
     fn from_iter<I: IntoIterator<Item = S::Elem>>(iter: I) -> Self {
         match Bag::try_from_iter(iter) {

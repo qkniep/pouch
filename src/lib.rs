@@ -127,11 +127,12 @@ pub use store::{Capped, ScratchVec, Spill, Unbounded};
 // "Picking a store" table in the crate docs.
 // ---------------------------------------------------------------------------
 
-/// The recommended default set: a sorted set that keeps its elements **inline**
-/// (no heap allocation) until it outgrows `N`, then spills to the heap. This is the
-/// pick for the case the crate is built for — many small sets nested inside a larger
-/// structure (`Vec<Set<_>>`, adjacency lists, per-key buckets), where avoiding a heap
-/// allocation *per inner set* is the win.
+/// The recommended default set: a sorted set that keeps its elements **inline** (no heap
+/// allocation) until it outgrows `N`, then spills to the heap.
+///
+/// This is the pick for the case the crate is built for — many small sets nested inside a
+/// larger structure (`Vec<Set<_>>`, adjacency lists, per-key buckets), where avoiding a
+/// heap allocation *per inner set* is the win.
 ///
 /// `Set<T>` just works; `Set<T, N>` tunes the inline capacity. Keep `N` small —
 /// `size_of::<Set<T, N>>` grows with `N · size_of::<T>()`, and you may have millions
@@ -150,8 +151,9 @@ pub use store::{Capped, ScratchVec, Spill, Unbounded};
 #[cfg(feature = "smallvec")]
 pub type Set<T, const N: usize = 8> = SortedSet<SmallVec<[T; N]>>;
 /// The recommended default map — the [`Set`] story for key/value pairs: entries live
-/// inline until the map outgrows `N`. `Map<K, V>` just works; `Map<K, V, N>` tunes
-/// the inline capacity (keep it small).
+/// inline until the map outgrows `N`.
+///
+/// `Map<K, V>` just works; `Map<K, V, N>` tunes the inline capacity (keep it small).
 #[cfg(feature = "smallvec")]
 pub type Map<K, V, const N: usize = 8> = SortedMap<SmallVec<[(K, V); N]>>;
 
@@ -163,14 +165,17 @@ pub type Map<K, V, const N: usize = 8> = SortedMap<SmallVec<[(K, V); N]>>;
 #[doc = include_str!("../README.md")]
 mod readme_doctests {}
 
-/// A **read-only** sorted set over a borrowed slice — no dependency, no `alloc`,
-/// so it works in any build. Wrap an already-sorted, duplicate-free slice (e.g. a
-/// `static` table living in flash) via [`SortedSet::from_store`] for zero-alloc
-/// `contains` with no copy: `SliceSet::from_store(&TABLE[..])`. It exposes only
-/// the read API ([`store::Store`], not [`store::StoreMut`]).
+/// A **read-only** sorted set over a borrowed slice — no dependency, no `alloc`, so it
+/// works in any build.
+///
+/// Wrap an already-sorted, duplicate-free slice (e.g. a `static` table living in flash)
+/// via [`SortedSet::from_store`] for zero-alloc `contains` with no copy:
+/// `SliceSet::from_store(&TABLE[..])`. It exposes only the read API ([`store::Store`],
+/// not [`store::StoreMut`]).
 pub type SliceSet<'a, T> = SortedSet<&'a [T]>;
-/// A **read-only** sorted map over a borrowed `&[(K, V)]` slice — the [`SliceSet`]
-/// story for key/value pairs. Wrap a `static` sorted-by-key table via
-/// [`SortedMap::from_store`] for zero-alloc `get`/`contains_key` straight out of
-/// flash: `SliceMap::from_store(&TABLE[..])`.
+/// A **read-only** sorted map over a borrowed `&[(K, V)]` slice — the [`SliceSet`] story
+/// for key/value pairs.
+///
+/// Wrap a `static` sorted-by-key table via [`SortedMap::from_store`] for zero-alloc
+/// `get`/`contains_key` straight out of flash: `SliceMap::from_store(&TABLE[..])`.
 pub type SliceMap<'a, K, V> = SortedMap<&'a [(K, V)]>;

@@ -16,8 +16,10 @@ mod entry;
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
 
 /// Iterator over a map's entries as `(&K, &V)` pairs — what [`SortedMap::iter`] and
-/// [`UnsortedMap::iter`] return and `&map` iterates as. A thin wrapper over the
-/// underlying `&[(K, V)]` slice iterator (double-ended, exact-size, fused).
+/// [`UnsortedMap::iter`] return and `&map` iterates as.
+///
+/// A thin wrapper over the underlying `&[(K, V)]` slice iterator (double-ended,
+/// exact-size, fused).
 // A named struct rather than an `iter::Map<_, fn(…)>` type alias: naming the
 // alias forces the projection into a function *pointer*, which can survive to
 // codegen as an indirect call — and a map iterated in a hot loop is exactly
@@ -135,10 +137,10 @@ impl<S: Store> SortedMap<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
-    /// Borrows the backing store, for backend-specific introspection
-    /// (`spilled()`, allocated capacity, …) — see
-    /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
-    /// access could break the sorted-by-key invariant that
+    /// Borrows the backing store, for backend-specific introspection (`spilled()`,
+    /// allocated capacity, …) — see [`SortedSet::store`](crate::SortedSet::store).
+    ///
+    /// Shared-ref only: `&mut` access could break the sorted-by-key invariant that
     /// [`from_store`](Self::from_store) trusts.
     pub fn store(&self) -> &S {
         &self.store
@@ -151,8 +153,9 @@ impl<S: Store> SortedMap<S> {
 }
 
 impl<S: StoreMut> SortedMap<S> {
-    /// Removes every entry, keeping the backing store's allocated capacity. Needs
-    /// no `Ord` bound — it only truncates the store.
+    /// Removes every entry, keeping the backing store's allocated capacity.
+    ///
+    /// Needs no `Ord` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
     }
@@ -246,7 +249,9 @@ where
     }
 
     /// Retains only the entries for which `f` returns `true`, preserving key order.
-    /// `O(n)`. The predicate gets `&mut V`, so it can update the entries it keeps.
+    /// `O(n)`.
+    ///
+    /// The predicate gets `&mut V`, so it can update the entries it keeps.
     pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut f: F) {
         retain_in(&mut self.store, |(k, v)| f(k, v));
     }
@@ -257,12 +262,13 @@ where
     S: Store<Elem = (K, V)>,
     K: Ord,
 {
-    /// Wraps a store **assumed already sorted by key and free of duplicate keys** —
-    /// the invariant `binary_search` (and thus [`get`](Self::get) /
-    /// [`try_insert`](Self::try_insert) / [`remove`](Self::remove)) relies on. No
-    /// sort is performed; an out-of-order or duplicate-keyed store yields wrong
-    /// lookups. The precondition is only `debug_assert!`-checked (zero cost in
-    /// release). For a runtime-checked ascending build use
+    /// Wraps a store **assumed already sorted by key and free of duplicate keys** — the
+    /// invariant `binary_search` (and thus [`get`](Self::get) /
+    /// [`try_insert`](Self::try_insert) / [`remove`](Self::remove)) relies on.
+    ///
+    /// No sort is performed; an out-of-order or duplicate-keyed store yields wrong
+    /// lookups. The precondition is only `debug_assert!`-checked (zero cost in release).
+    /// For a runtime-checked ascending build use
     /// [`try_from_sorted_iter`](Self::try_from_sorted_iter); to build from arbitrary
     /// input use [`try_from_iter`](Self::try_from_iter).
     ///
@@ -278,11 +284,12 @@ where
         SortedMap { store }
     }
 
-    /// Binary searches the store by key. `Ok(i)` is the index of the matching
-    /// entry; `Err(i)` the insertion point that keeps the keys sorted. Every
-    /// key lookup — `get`, `contains_key`, `try_insert`, `remove`, `entry` —
-    /// routes through this one search, so they can never disagree on which
-    /// entry is "the one for this key" (and the `Borrow`-keyed match lands in
+    /// Binary searches the store by key.
+    ///
+    /// `Ok(i)` is the index of the matching entry; `Err(i)` the insertion point that
+    /// keeps the keys sorted. Every key lookup — `get`, `contains_key`, `try_insert`,
+    /// `remove`, `entry` — routes through this one search, so they can never disagree on
+    /// which entry is "the one for this key" (and the `Borrow`-keyed match lands in
     /// exactly one place).
     fn search<Q>(&self, key: &Q) -> Result<usize, usize>
     where
@@ -313,9 +320,10 @@ where
         Some(&self.store.as_slice()[i].1)
     }
 
-    /// Returns `true` if `key` is present. `O(log n)` — like [`get`](Self::get) but
-    /// yields a yes/no answer, so it needs no value lifetime. `key` may be any
-    /// borrowed form of `K`.
+    /// Returns `true` if `key` is present.
+    ///
+    /// `O(log n)` — like [`get`](Self::get) but yields a yes/no answer, so it needs no
+    /// value lifetime. `key` may be any borrowed form of `K`.
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -325,11 +333,12 @@ where
     }
 
     /// Returns the entries whose keys fall within `range`, as a subslice of the sorted
-    /// store — the sorted layout's native range query. Two `O(log n)` bound
-    /// searches, zero copies. The bounds may be any borrowed form of `K`, like
-    /// [`get`](Self::get); as with `BTreeMap::range`, an **unsized** form
-    /// (`str`, `[u8]`) needs the explicit tuple-of-`Bound`s shape:
-    /// `map.range::<str, _>((Bound::Included("a"), Bound::Excluded("m")))`.
+    /// store — the sorted layout's native range query.
+    ///
+    /// Two `O(log n)` bound searches, zero copies. The bounds may be any borrowed form of
+    /// `K`, like [`get`](Self::get); as with `BTreeMap::range`, an **unsized** form
+    /// (`str`, `[u8]`) needs the explicit tuple-of-`Bound`s shape: `map.range::<str,
+    /// _>((Bound::Included("a"), Bound::Excluded("m")))`.
     ///
     /// # Panics
     ///
@@ -350,9 +359,10 @@ where
     K: Ord,
 {
     /// Returns a mutable reference to `key`'s value, or `None` if absent — for an
-    /// in-place update without the [`entry`](Self::entry) ceremony. Carries the same
-    /// explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311 quirk), and
-    /// takes any borrowed form of `K` the same way.
+    /// in-place update without the [`entry`](Self::entry) ceremony.
+    ///
+    /// Carries the same explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311
+    /// quirk), and takes any borrowed form of `K` the same way.
     pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
         K: Borrow<Q> + 'a,
@@ -363,8 +373,10 @@ where
         Some(&mut self.store.as_mut_slice()[i].1)
     }
 
-    /// Inserts or replaces. Replacing an existing key consumes no capacity and so
-    /// can never fail — only a genuinely new key at the bound errors.
+    /// Inserts or replaces.
+    ///
+    /// Replacing an existing key consumes no capacity and so can never fail — only a
+    /// genuinely new key at the bound errors.
     ///
     /// # Errors
     ///
@@ -381,9 +393,10 @@ where
         }
     }
 
-    /// Removes the entry for `key`, returning its value. Order-preserving shift:
-    /// `O(log n)` search, `O(n)` shift. `key` may be any borrowed form of `K`,
-    /// like [`get`](Self::get).
+    /// Removes the entry for `key`, returning its value.
+    ///
+    /// Order-preserving shift: `O(log n)` search, `O(n)` shift. `key` may be any borrowed
+    /// form of `K`, like [`get`](Self::get).
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
@@ -416,10 +429,11 @@ where
         }
     }
 
-    /// Inserts every entry, one at a time, **last-wins**: a repeated key replaces
-    /// the earlier value rather than erroring (so this returns only a
-    /// [`CapacityError`], never a duplicate-key error). `O(k·n)`. To instead
-    /// reject duplicate keys, build a fresh map with
+    /// Inserts every entry, one at a time, **last-wins**: a repeated key replaces the
+    /// earlier value rather than erroring (so this returns only a [`CapacityError`],
+    /// never a duplicate-key error). `O(k·n)`.
+    ///
+    /// To instead reject duplicate keys, build a fresh map with
     /// [`try_from_iter`](Self::try_from_iter).
     ///
     /// On overflow only the one rejected entry is recoverable: the iterator is
@@ -448,11 +462,13 @@ where
     K: Ord,
 {
     /// Builds from an arbitrary (unordered) iterator of entries in `O(n log n)`,
-    /// **requiring every key to be unique**: append all, sort by key, then reject
-    /// any duplicate. Unlike a set's silent dedup, a map can't drop a duplicate
-    /// key without arbitrarily choosing which value to keep, so it errors instead
-    /// (the second entry of the clashing pair is handed back). For last-wins
-    /// override semantics use [`try_extend`](Self::try_extend) / `extend`.
+    /// **requiring every key to be unique**: append all, sort by key, then reject any
+    /// duplicate.
+    ///
+    /// Unlike a set's silent dedup, a map can't drop a duplicate key without arbitrarily
+    /// choosing which value to keep, so it errors instead (the second entry of the
+    /// clashing pair is handed back). For last-wins override semantics use
+    /// [`try_extend`](Self::try_extend) / `extend`.
     ///
     /// # Errors
     ///
@@ -481,9 +497,11 @@ where
     }
 
     /// Builds from an iterator whose entries are already in ascending key order, in
-    /// `O(n)` — no sort. Like [`try_from_iter`](Self::try_from_iter) it requires
-    /// unique keys, but it detects a duplicate (and a misordered key) *before* the
-    /// append, so either is rejected even at capacity (neither consumes a slot).
+    /// `O(n)` — no sort.
+    ///
+    /// Like [`try_from_iter`](Self::try_from_iter) it requires unique keys, but it
+    /// detects a duplicate (and a misordered key) *before* the append, so either is
+    /// rejected even at capacity (neither consumes a slot).
     ///
     /// Unlike [`from_store`](Self::from_store), the ascending-order promise is
     /// enforced in every build profile: a key smaller than its predecessor is
@@ -522,9 +540,10 @@ where
     S: StoreMut<Elem = (K, V)> + Unbounded,
     K: Ord,
 {
-    /// Infallibly inserts or replaces, returning the previous value — available
-    /// only when the backing store is [`Unbounded`]. The infallible twin of
-    /// [`try_insert`](Self::try_insert).
+    /// Infallibly inserts or replaces, returning the previous value — available only when
+    /// the backing store is [`Unbounded`].
+    ///
+    /// The infallible twin of [`try_insert`](Self::try_insert).
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.try_insert(key, value) {
             Ok(prev) => prev,
@@ -581,6 +600,7 @@ where
 }
 
 /// Consumes the map, yielding owned `(K, V)` entries in ascending key order.
+///
 /// Available when the backing store is itself consumable into its elements.
 impl<S> IntoIterator for SortedMap<S>
 where
@@ -600,9 +620,11 @@ where
     K: Ord,
 {
     /// Extends the map, last-wins and infallible — available only for an [`Unbounded`]
-    /// store. Deliberately no `FromIterator`: fresh construction is strict about
-    /// duplicate keys (see [`try_from_iter`](SortedMap::try_from_iter)), whereas
-    /// `extend` matches the standard-library override semantics.
+    /// store.
+    ///
+    /// Deliberately no `FromIterator`: fresh construction is strict about duplicate keys
+    /// (see [`try_from_iter`](SortedMap::try_from_iter)), whereas `extend` matches the
+    /// standard-library override semantics.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         match self.try_extend(iter) {
             Ok(()) => {}
@@ -611,9 +633,10 @@ where
     }
 }
 
-/// A map with no key ordering (`Elem = (K, V)`): lookup is a linear scan, insert
-/// appends, delete swap-removes. The unsorted counterpart of [`SortedMap`];
-/// needs only `K: Eq`, not `K: Ord`.
+/// A map with no key ordering (`Elem = (K, V)`): lookup is a linear scan, insert appends,
+/// delete swap-removes.
+///
+/// The unsorted counterpart of [`SortedMap`]; needs only `K: Eq`, not `K: Ord`.
 // Derives `Clone` but not `PartialEq`/`Eq` (nor `Hash`/`Ord`): correct map
 // equality is key-order-independent, yet swap-remove lets two equal maps store
 // their entries in different orders, so a structural derive would wrongly call
@@ -655,10 +678,11 @@ impl<S: Store> UnsortedMap<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
-    /// Borrows the backing store, for backend-specific introspection
-    /// (`spilled()`, allocated capacity, …) — see
-    /// [`SortedSet::store`](crate::SortedSet::store). Shared-ref only: `&mut`
-    /// access could smuggle in a duplicate key, breaking the map invariant.
+    /// Borrows the backing store, for backend-specific introspection (`spilled()`,
+    /// allocated capacity, …) — see [`SortedSet::store`](crate::SortedSet::store).
+    ///
+    /// Shared-ref only: `&mut` access could smuggle in a duplicate key, breaking the map
+    /// invariant.
     pub fn store(&self) -> &S {
         &self.store
     }
@@ -670,8 +694,9 @@ impl<S: Store> UnsortedMap<S> {
 }
 
 impl<S: StoreMut> UnsortedMap<S> {
-    /// Removes every entry, keeping the backing store's allocated capacity. Needs
-    /// no `Eq` bound — it only truncates the store.
+    /// Removes every entry, keeping the backing store's allocated capacity.
+    ///
+    /// Needs no `Eq` bound — it only truncates the store.
     pub fn clear(&mut self) {
         self.store.clear();
     }
@@ -743,8 +768,9 @@ where
         self.store.as_mut_slice().iter_mut().map(|(_, v)| v)
     }
 
-    /// Retains only the entries for which `f` returns `true`. `O(n)`. The predicate
-    /// gets `&mut V`, so it can update the entries it keeps.
+    /// Retains only the entries for which `f` returns `true`. `O(n)`.
+    ///
+    /// The predicate gets `&mut V`, so it can update the entries it keeps.
     pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut f: F) {
         retain_in(&mut self.store, |(k, v)| f(k, v));
     }
@@ -755,9 +781,10 @@ where
     S: Store<Elem = (K, V)>,
     K: Eq,
 {
-    /// Wraps a store **assumed free of duplicate keys** — the map invariant. No scan
-    /// is performed; a duplicate key would shadow itself and let the same entry be
-    /// removed twice. The precondition is `debug_assert!`-checked (zero cost in
+    /// Wraps a store **assumed free of duplicate keys** — the map invariant.
+    ///
+    /// No scan is performed; a duplicate key would shadow itself and let the same entry
+    /// be removed twice. The precondition is `debug_assert!`-checked (zero cost in
     /// release). To build from arbitrary input, use
     /// [`try_from_iter`](Self::try_from_iter).
     ///
@@ -776,11 +803,12 @@ where
         UnsortedMap { store }
     }
 
-    /// Returns the index of the entry whose key equals `key`, or `None`. Every key lookup
-    /// — `get`, `try_insert`, `remove`, `try_from_iter` — routes through this single
-    /// scan, so they can never disagree on which entry is "the one for this key"
-    /// (and the `Borrow`-keyed match — and any future comparator — lands in
-    /// exactly one place).
+    /// Returns the index of the entry whose key equals `key`, or `None`.
+    ///
+    /// Every key lookup — `get`, `try_insert`, `remove`, `try_from_iter` — routes through
+    /// this single scan, so they can never disagree on which entry is "the one for this
+    /// key" (and the `Borrow`-keyed match — and any future comparator — lands in exactly
+    /// one place).
     fn position<Q>(&self, key: &Q) -> Option<usize>
     where
         K: Borrow<Q>,
@@ -808,9 +836,11 @@ where
         self.position(key).map(|i| &self.store.as_slice()[i].1)
     }
 
-    /// Returns `true` if `key` is present. `O(n)` — routes through the same internal
-    /// linear scan as the other lookups, so it stays consistent with
-    /// [`get`](Self::get), and takes any borrowed form of `K` the same way.
+    /// Returns `true` if `key` is present.
+    ///
+    /// `O(n)` — routes through the same internal linear scan as the other lookups, so it
+    /// stays consistent with [`get`](Self::get), and takes any borrowed form of `K` the
+    /// same way.
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -826,9 +856,10 @@ where
     K: Eq,
 {
     /// Returns a mutable reference to `key`'s value, or `None` if absent — for an
-    /// in-place update without the [`entry`](Self::entry) ceremony. Routes through
-    /// the same internal linear scan as [`get`](Self::get) and takes any borrowed
-    /// form of `K` the same way; carries the same explicit `K/V: 'a` bounds (the
+    /// in-place update without the [`entry`](Self::entry) ceremony.
+    ///
+    /// Routes through the same internal linear scan as [`get`](Self::get) and takes any
+    /// borrowed form of `K` the same way; carries the same explicit `K/V: 'a` bounds (the
     /// E0311 quirk).
     pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
@@ -840,9 +871,11 @@ where
         Some(&mut self.store.as_mut_slice()[i].1)
     }
 
-    /// Inserts or replaces. Replacing an existing key consumes no capacity and so
-    /// can never fail — only a genuinely new key at the bound errors. O(n) lookup,
-    /// O(1) to append or replace in place.
+    /// Inserts or replaces.
+    ///
+    /// Replacing an existing key consumes no capacity and so can never fail — only a
+    /// genuinely new key at the bound errors. O(n) lookup, O(1) to append or replace in
+    /// place.
     ///
     /// # Errors
     ///
@@ -857,9 +890,10 @@ where
         push(&mut self.store, (key, value)).map(|()| None)
     }
 
-    /// Removes the entry for `key`, returning its value. Swap-remove: O(1), order
-    /// not preserved. `key` may be any borrowed form of `K`, like
-    /// [`get`](Self::get).
+    /// Removes the entry for `key`, returning its value.
+    ///
+    /// Swap-remove: O(1), order not preserved. `key` may be any borrowed form of `K`,
+    /// like [`get`](Self::get).
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
@@ -869,10 +903,11 @@ where
         Some(self.store.swap_remove_at(i).1)
     }
 
-    /// Resolves `key`'s slot **once** and returns an [`Entry`] for an
-    /// insert-or-update, avoiding the second scan a separate [`get`](Self::get) +
-    /// [`try_insert`](Self::try_insert) would pay. `O(n)` to locate; an occupied
-    /// entry removes via `O(1)` swap (order not preserved).
+    /// Resolves `key`'s slot **once** and returns an [`Entry`] for an insert-or-update,
+    /// avoiding the second scan a separate [`get`](Self::get) +
+    /// [`try_insert`](Self::try_insert) would pay.
+    ///
+    /// `O(n)` to locate; an occupied entry removes via `O(1)` swap (order not preserved).
     pub fn entry(&mut self, key: K) -> Entry<'_, S, K> {
         match self.position(&key) {
             Some(index) => Entry::Occupied(OccupiedEntry::unsorted(&mut self.store, index)),
@@ -883,9 +918,11 @@ where
         }
     }
 
-    /// Inserts every entry, one at a time, **last-wins** (a repeated key replaces
-    /// the earlier value rather than erroring). `O(k·n)`. To reject duplicate keys
-    /// instead, build a fresh map with [`try_from_iter`](Self::try_from_iter).
+    /// Inserts every entry, one at a time, **last-wins** (a repeated key replaces the
+    /// earlier value rather than erroring). `O(k·n)`.
+    ///
+    /// To reject duplicate keys instead, build a fresh map with
+    /// [`try_from_iter`](Self::try_from_iter).
     ///
     /// On overflow only the one rejected entry is recoverable: the iterator is
     /// dropped along with any entries it has not yet yielded. Drive
@@ -913,10 +950,11 @@ where
     K: Eq,
 {
     /// Builds from an iterator of entries, **requiring every key to be unique**.
-    /// `O(n²)`: each entry is scanned against those already kept (an unsorted map
-    /// has no faster dedup without `Ord`), and a repeated key is rejected — a map
-    /// can't drop a duplicate key without arbitrarily picking a value. For
-    /// last-wins override semantics use [`try_extend`](Self::try_extend) / `extend`.
+    ///
+    /// `O(n²)`: each entry is scanned against those already kept (an unsorted map has no
+    /// faster dedup without `Ord`), and a repeated key is rejected — a map can't drop a
+    /// duplicate key without arbitrarily picking a value. For last-wins override
+    /// semantics use [`try_extend`](Self::try_extend) / `extend`.
     ///
     /// # Errors
     ///
@@ -942,9 +980,10 @@ where
     S: StoreMut<Elem = (K, V)> + Unbounded,
     K: Eq,
 {
-    /// Infallibly inserts or replaces, returning the previous value — available
-    /// only when the backing store is [`Unbounded`]. The infallible twin of
-    /// [`try_insert`](Self::try_insert).
+    /// Infallibly inserts or replaces, returning the previous value — available only when
+    /// the backing store is [`Unbounded`].
+    ///
+    /// The infallible twin of [`try_insert`](Self::try_insert).
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.try_insert(key, value) {
             Ok(prev) => prev,
@@ -968,6 +1007,7 @@ where
 }
 
 /// Consumes the map, yielding owned `(K, V)` entries in no particular order.
+///
 /// Available when the backing store is itself consumable into its elements.
 impl<S> IntoIterator for UnsortedMap<S>
 where
@@ -987,8 +1027,10 @@ where
     K: Eq,
 {
     /// Extends the map, last-wins and infallible — available only for an [`Unbounded`]
-    /// store. As with [`SortedMap`], there is deliberately no `FromIterator`: fresh
-    /// construction rejects duplicate keys, while `extend` overrides them.
+    /// store.
+    ///
+    /// As with [`SortedMap`], there is deliberately no `FromIterator`: fresh construction
+    /// rejects duplicate keys, while `extend` overrides them.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         match self.try_extend(iter) {
             Ok(()) => {}

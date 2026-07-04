@@ -3,9 +3,10 @@
 use super::{Store, StoreMut, StoreNew};
 use crate::error::CapacityError;
 
-/// Adds a **runtime** logical-capacity bound to any backing store, turning its
-/// (otherwise infallible) inserts into recoverable [`CapacityError`]s. This is
-/// the factoring that makes `max_capacity` orthogonal to storage: cap logic is
+/// Adds a **runtime** logical-capacity bound to any backing store, turning its (otherwise
+/// infallible) inserts into recoverable [`CapacityError`]s.
+///
+/// This is the factoring that makes `max_capacity` orthogonal to storage: cap logic is
 /// written once here rather than per backend.
 ///
 /// # Admission control
@@ -37,12 +38,14 @@ pub struct Capped<S> {
 }
 
 impl<S> Capped<S> {
-    /// Wraps `inner` with a runtime cap, **assuming its current length does not
-    /// already exceed `cap`** — the `len() <= capacity()` invariant the rest of
-    /// the crate relies on (e.g. any `capacity() - len()` remaining math, which
-    /// would otherwise underflow). The precondition is only `debug_assert!`-checked
-    /// (zero cost in release), mirroring the collection-layer `from_store`. To
-    /// start from an empty store instead, use [`with_capacity`](Self::with_capacity).
+    /// Wraps `inner` with a runtime cap, **assuming its current length does not already
+    /// exceed `cap`** — the `len() <= capacity()` invariant the rest of the crate relies
+    /// on (e.g. any `capacity() - len()` remaining math, which would otherwise
+    /// underflow).
+    ///
+    /// The precondition is only `debug_assert!`-checked (zero cost in release), mirroring
+    /// the collection-layer `from_store`. To start from an empty store instead, use
+    /// [`with_capacity`](Self::with_capacity).
     ///
     /// # Panics
     ///
@@ -125,9 +128,10 @@ impl<S: StoreMut> StoreMut for Capped<S> {
 
 // Capped is deliberately NOT `Unbounded`.
 
-/// Consuming iteration delegates to the inner store — the cap only constrains
-/// growth, not reads. Keeps a `Capped` store eligible for the collections'
-/// by-value `IntoIterator`.
+/// Consuming iteration delegates to the inner store — the cap only constrains growth, not
+/// reads.
+///
+/// Keeps a `Capped` store eligible for the collections' by-value `IntoIterator`.
 impl<S: IntoIterator> IntoIterator for Capped<S> {
     type Item = S::Item;
     type IntoIter = S::IntoIter;

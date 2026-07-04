@@ -20,8 +20,10 @@ use core::hash::{Hash, Hasher};
 use super::{push, Store, StoreMut, StoreNew, Unbounded};
 use crate::error::CapacityError;
 
-/// Two-tier store: `inline` until it fills, then everything migrates to `spill`
-/// and stays there. See the module docs.
+/// Two-tier store: `inline` until it fills, then everything migrates to `spill` and stays
+/// there.
+///
+/// See the module docs.
 #[derive(Clone, Debug)]
 pub struct Spill<A, B> {
     inline: A,
@@ -93,10 +95,12 @@ where
 }
 
 impl<A: Store, B: Store> Spill<A, B> {
-    /// Builds from two **empty** tiers (debug-checked). The general constructor —
-    /// use it when the spill tier needs a runtime resource it can't `new()`, like
-    /// a [`ScratchVec`](crate::ScratchVec) borrowing a buffer. When both tiers are
-    /// `StoreNew` and empty, [`StoreNew::new`] is the no-argument shortcut.
+    /// Builds from two **empty** tiers (debug-checked).
+    ///
+    /// The general constructor — use it when the spill tier needs a runtime resource it
+    /// can't `new()`, like a [`ScratchVec`](crate::ScratchVec) borrowing a buffer. When
+    /// both tiers are `StoreNew` and empty, [`StoreNew::new`] is the no-argument
+    /// shortcut.
     ///
     /// # Panics
     ///
@@ -125,9 +129,10 @@ impl<A: StoreNew, B: Store> Spill<A, B> {
 }
 
 impl<A, B> Spill<A, B> {
-    /// Returns `true` if the store has spilled into its second tier. Once spilled it
-    /// stays spilled until [`clear`](StoreMut::clear) (no migrate-back), so this also
-    /// reports "has ever overflowed the inline tier".
+    /// Returns `true` if the store has spilled into its second tier.
+    ///
+    /// Once spilled it stays spilled until [`clear`](StoreMut::clear) (no migrate-back),
+    /// so this also reports "has ever overflowed the inline tier".
     pub fn is_spilled(&self) -> bool {
         self.spilled
     }
@@ -223,12 +228,12 @@ where
         self.spilled = false;
     }
 
-    /// Pre-arms the tier the elements will live in. Once spilled, forwards to
-    /// the spill tier. Before that, if the projected length (`len +
-    /// additional`) still fits the inline tier there is nothing to do; if it
-    /// doesn't, migration is coming — so reserve the *spill* tier for the
-    /// whole projected population now, and the spill boundary itself
-    /// allocates nothing when it hits.
+    /// Pre-arms the tier the elements will live in.
+    ///
+    /// Once spilled, forwards to the spill tier. Before that, if the projected length
+    /// (`len + additional`) still fits the inline tier there is nothing to do; if it
+    /// doesn't, migration is coming — so reserve the *spill* tier for the whole projected
+    /// population now, and the spill boundary itself allocates nothing when it hits.
     fn reserve(&mut self, additional: usize) {
         if self.spilled {
             self.spill.reserve(additional);
@@ -258,10 +263,11 @@ impl<A: StoreNew, B: StoreNew<Elem = A::Elem>> StoreNew for Spill<A, B> {
 impl<A, B: Unbounded> Unbounded for Spill<A, B> {}
 
 /// Consuming iteration: migrates any still-inline elements into the spill tier
-/// (order-preserving, `O(n)`, cannot fail — the tier is empty and must hold at
-/// least the inline capacity), then yield the spill tier's iterator. One
-/// iterator type instead of an either-tier enum; the one-time move is paid only
-/// by a bag/set/map consumed before it ever spilled.
+/// (order-preserving, `O(n)`, cannot fail — the tier is empty and must hold at least the
+/// inline capacity), then yield the spill tier's iterator.
+///
+/// One iterator type instead of an either-tier enum; the one-time move is paid only by a
+/// bag/set/map consumed before it ever spilled.
 impl<A, B> IntoIterator for Spill<A, B>
 where
     A: StoreMut,

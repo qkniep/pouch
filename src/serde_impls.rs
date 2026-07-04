@@ -45,10 +45,11 @@ use crate::{Bag, SortedMap, SortedSet, UnsortedMap, UnsortedSet};
 const CAUTIOUS_LEN_CAP: usize = 4096;
 
 /// Drive a [`SeqAccess`] as a plain `Iterator`, so the crate's own builders
-/// (`try_from_iter`) can consume it unchanged. A deserializer error has no
-/// lane through the builder's error type, so it is stashed aside and checked
-/// by the caller *before* the builder's result — an error mid-stream just cuts
-/// the iterator short, and the truncated build result must not be trusted.
+/// (`try_from_iter`) can consume it unchanged.
+///
+/// A deserializer error has no lane through the builder's error type, so it is stashed
+/// aside and checked by the caller *before* the builder's result — an error mid-stream
+/// just cuts the iterator short, and the truncated build result must not be trusted.
 struct SeqIter<'de, 'a, A, T>
 where
     A: SeqAccess<'de>,
