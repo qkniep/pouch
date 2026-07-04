@@ -23,7 +23,9 @@ src/store/capped.rs   Capped<S> adapter
 src/store/backend.rs  mostly cfg-gated `mod vec; mod smallvec; …` — impls only, nothing exported
 src/store/backend/*   one file per backend (slice, vec, smallvec, tinyvec, arrayvec, heapless)
 src/set.rs            SortedSet, UnsortedSet
+src/set/algebra.rs    merge-based set algebra: Union/Intersection/… iterators, subset/disjoint predicates
 src/map.rs            SortedMap, UnsortedMap
+src/serde_impls.rs    cfg(serde): Serialize/Deserialize for every collection
 src/column_map.rs     ColumnMap (struct-of-arrays unsorted map — two stores)
 src/sorted_column_map.rs  SortedColumnMap (struct-of-arrays sorted map — two stores)
 tests/smoke.rs        integration tests
@@ -39,7 +41,42 @@ gated on `Unbounded` and `or_try_insert` everywhere, mirroring `insert`/`try_ins
 The single-store maps use `Entry` (`src/map/entry.rs`, over `Elem = (K, V)`); the
 two-store column maps use the parallel `ColumnEntry` (`src/column_map/entry.rs`, over
 two stores, `or_insert` gated on **both** columns being `Unbounded`, one combined-cap
-pre-check on a vacant insert). Comparators are the planned next step.
+pre-check on a vacant insert). Lookups take std-style borrowed keys (`K: Borrow<Q>`,
+`Q: Ord/Eq + ?Sized` — `get("k")` on a `Map<String, _>` allocates nothing), each map
+routing every key match through one private `search`/`position`. Unsized *range*
+bounds need the tuple-of-`Bound`s shape (`range::<str, _>((Bound::Included("a"), …))`)
+— range sugar like `"a".."m"` only bounds `&str` itself, exactly as in `BTreeMap`.
+Every collection exposes its store read-only (`store()` / `into_store()`; the column
+maps `stores()` / `into_stores()`) — backend introspection like `SmallVec::spilled()`
+or `Spill::is_spilled` without a mutable path that could break invariants — and a
+`reserve(additional)` that forwards the `StoreMut::reserve` growth hint (see below).
+The **sorted** flavors derive `Hash`/`PartialOrd`/`Ord` off their canonical stored
+order (structural = semantic, same argument as their `PartialEq`), so a `Set<u32>`
+can key a `HashMap` or live in a `BTreeSet`; the unsorted flavors can't derive any
+of these (swap-remove makes stored order incidental). This relies on the store's
+own `Eq`/`Ord`/`Hash` behaving like its `as_slice()` — true of every backend, and
+`Spill` implements them manually over `as_slice()` for exactly this reason (which
+tier the elements live in is position, not content; a structural derive would call
+a spilled-then-shrunk store unequal to a never-spilled twin). Caveat: `SortedColumnMap`'s
+derived order compares column-wise (all keys, then all values), not entry-interleaved
+like `SortedMap`. `SortedSet` has merge-based set algebra (`union` / `intersection` /
+`difference` / `symmetric_difference` iterators plus `is_subset` / `is_superset` /
+`is_disjoint`, `src/set/algebra.rs`): `O(n + m)` two-pointer walks over the sorted
+slices, cross-store (`other` may use a different backend — e.g. union with a `SliceSet`
+flash table), with the predicates switching to `O(n log m)` binary searches when one
+side is ≥16× smaller (BTreeSet's adaptivity). `UnsortedSet` gets only the three
+predicates (`O(n·m)` scans — no order, no merge). `MapIter` is a handwritten struct,
+NOT an `iter::Map<_, fn(…)>` alias — naming that alias forces a function *pointer*,
+which can survive to codegen as an indirect call in hot loops. Serde support lives
+behind the `serde` feature (`src/serde_impls.rs`): sets/bags serialize as sequences
+and maps as maps, and deserialization routes through the same `try_from_iter`
+builders as everything else — sets dedup, **maps reject duplicate keys** (a
+deliberate difference from std's silently-last-wins serde impls), a bounded store
+filling mid-stream is a `de::Error` (bounded deserialization = input validation),
+and wire-claimed lengths are capped before reaching `reserve` (serde's "cautious"
+policy). `Capped`/`ScratchVec`-backed collections serialize but can't deserialize
+(no `StoreNew` — they need runtime state); build via `from_store` + `try_extend`.
+Comparators are the planned next step.
 
 ## Commands
 
@@ -129,6 +166,13 @@ shift both in lockstep to keep keys sorted (`O(n)`).
 - `StoreNew` is kept separate from `Default` on purpose: `Capped` needs a runtime cap and
   so must be excluded from no-argument construction (use `Capped::with_capacity` /
   `from_store`).
+- `StoreMut::reserve(additional)` is a **defaulted no-op growth hint**, not a separate
+  trait: its promise is "no reallocation before `len + additional`", which stores that
+  never reallocate (fixed-cap, borrowed) satisfy trivially — and a default method is the
+  only stable-Rust way for `append_all` (bound: `StoreMut`) to consult `size_hint`.
+  Growable backends override it natively; `Capped` clamps the request to its remaining
+  logical headroom; `Spill` pre-arms the *spill* tier when the projected length
+  overflows the inline tier (so the migration itself allocates nothing).
 - `Unbounded` is a marker trait. It is the gate that lets the collection layer expose an
   **infallible** `insert` (see `SortedSet::insert`). Implement it ONLY for genuinely
   unbounded growable backends (`Vec`, `SmallVec`, `TinyVec`). Fixed-cap backends
