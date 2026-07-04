@@ -43,6 +43,11 @@ impl<S> Capped<S> {
     /// would otherwise underflow). The precondition is only `debug_assert!`-checked
     /// (zero cost in release), mirroring the collection-layer `from_store`. To
     /// start from an empty store instead, use [`with_capacity`](Self::with_capacity).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `inner.len() > cap`; release builds trust the
+    /// precondition unchecked.
     pub fn from_store(inner: S, cap: usize) -> Self
     where
         S: Store,

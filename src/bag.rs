@@ -150,8 +150,12 @@ impl<S: StoreMut> Bag<S> {
         self.store.reserve(additional);
     }
 
-    /// Appends `value` at the tail. `O(1)`. Errors with the rejected element iff a
-    /// bounded store is at capacity; a bag never rejects for any other reason.
+    /// Appends `value` at the tail. `O(1)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `value` if a bounded store is at capacity;
+    /// a bag never rejects for any other reason.
     pub fn try_push(&mut self, value: S::Elem) -> Result<(), CapacityError<S::Elem>> {
         push(&mut self.store, value)
     }
@@ -163,21 +167,34 @@ impl<S: StoreMut> Bag<S> {
     }
 
     /// Removes and returns the element at `i` by swapping the last element into its
-    /// place — `O(1)`, but **does not preserve order**. Panics if `i` is out of
-    /// bounds. Prefer this over [`remove`](Self::remove) when order doesn't matter.
+    /// place — `O(1)`, but **does not preserve order**. Prefer this over
+    /// [`remove`](Self::remove) when order doesn't matter.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` is out of bounds.
     pub fn swap_remove(&mut self, i: usize) -> S::Elem {
         self.store.swap_remove_at(i)
     }
 
     /// Removes and returns the element at `i`, shifting the tail down to preserve
-    /// order — `O(n)`. Panics if `i` is out of bounds.
+    /// order — `O(n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` is out of bounds.
     pub fn remove(&mut self, i: usize) -> S::Elem {
         self.store.remove_at(i)
     }
 
     /// Appends every item from `iter` at the tail. `O(k)` for `k` items — a bare
-    /// append, no dedup. On a capacity failure the items pushed so far are kept and
-    /// the rejected element returned (the iterator's unconsumed tail is dropped).
+    /// append, no dedup.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the rejected element if a bounded store fills;
+    /// the items pushed so far are kept and the iterator's unconsumed tail is
+    /// dropped.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
@@ -188,8 +205,11 @@ impl<S: StoreMut> Bag<S> {
 
 impl<S: StoreMut + StoreNew> Bag<S> {
     /// Builds from an iterator by appending every item, in `O(n)`. No dedup and no
-    /// element bound — the simplest bulk build in the crate. Errors with the
-    /// rejected element if a bounded store fills.
+    /// element bound — the simplest bulk build in the crate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the rejected element if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,

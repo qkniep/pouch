@@ -134,6 +134,11 @@ impl<S: Store> SortedSet<S> {
     /// release). For a runtime-checked ascending build use
     /// [`try_from_sorted_iter`](Self::try_from_sorted_iter); to build from arbitrary
     /// input use [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `store` is not sorted or contains duplicates;
+    /// release builds trust the precondition unchecked.
     pub fn from_store(store: S) -> Self
     where
         S::Elem: Ord,
@@ -369,6 +374,11 @@ where
 {
     /// Inserts `value`, preserving order. `Ok(true)` if newly added, `Ok(false)` if
     /// already present (a duplicate consumes no capacity and never errors).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `value` if the set is at its logical
+    /// [`capacity`](Self::capacity) and `value` is not already present.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
         match self.store.as_slice().binary_search(&value) {
             Ok(_) => Ok(false),
@@ -408,6 +418,11 @@ where
     /// error along with any items it has not yet yielded. Drive
     /// [`try_insert`](Self::try_insert) yourself over an iterator you keep if the
     /// unconsumed tail must survive an overflow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first element that doesn't fit when a
+    /// bounded store fills; the items inserted before it are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
@@ -428,11 +443,13 @@ where
     /// [`try_insert`](Self::try_insert) — which is `O(n²)`, a shift per element —
     /// for bulk construction.
     ///
-    /// Errors with the rejected element if the store fills. Note for bounded
-    /// backends: items are appended *before* the dedup pass, so a duplicate-heavy
-    /// iterator can overflow the bound even when the deduplicated result would
-    /// fit. Use [`try_insert`](Self::try_insert) in a loop if duplicates must
-    /// never consume capacity.
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the rejected element if the store fills. Note for
+    /// bounded backends: items are appended *before* the dedup pass, so a
+    /// duplicate-heavy iterator can overflow the bound even when the deduplicated
+    /// result would fit. Use [`try_insert`](Self::try_insert) in a loop if duplicates
+    /// must never consume capacity.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
@@ -453,6 +470,12 @@ where
     /// check is one comparison per item — the same one the dedup already needs. A
     /// bounded store that fills yields [`BuildError::Capacity`]. (A set build
     /// never returns [`BuildError::DuplicateKey`] — duplicates dedup silently.)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::Unsorted`] if an item is smaller than its predecessor,
+    /// or [`BuildError::Capacity`] if a bounded store fills — each carrying the
+    /// offending element.
     pub fn try_from_sorted_iter<I>(iter: I) -> Result<Self, BuildError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
@@ -496,6 +519,12 @@ where
     /// Builds from an ascending iterator — the infallible
     /// [`try_from_sorted_iter`](Self::try_from_sorted_iter), available only for an
     /// [`Unbounded`] store. `O(n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input is not in ascending order — an infallible builder has no
+    /// error channel. Use [`try_from_sorted_iter`](Self::try_from_sorted_iter) to
+    /// recover from misordered input instead.
     pub fn from_sorted_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = S::Elem>,
@@ -605,6 +634,11 @@ impl<S: Store> UnsortedSet<S> {
     /// performed; duplicates would inflate `len` and let the same value be removed
     /// twice. The precondition is `debug_assert!`-checked (zero cost in release).
     /// To build from arbitrary input, use [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `store` contains duplicates; release builds trust
+    /// the precondition unchecked.
     pub fn from_store(store: S) -> Self
     where
         S::Elem: Eq,
@@ -727,6 +761,11 @@ where
     /// Appends `value` at the tail. `Ok(true)` if newly added, `Ok(false)` if already
     /// present (a duplicate consumes no capacity and never errors). O(n) to
     /// reject a duplicate, O(1) to append.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `value` if the set is at its logical
+    /// [`capacity`](Self::capacity) and `value` is not already present.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
         if self.store.as_slice().contains(&value) {
             return Ok(false);
@@ -765,6 +804,11 @@ where
     /// error along with any items it has not yet yielded. Drive
     /// [`try_insert`](Self::try_insert) yourself over an iterator you keep if the
     /// unconsumed tail must survive an overflow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first element that doesn't fit when a
+    /// bounded store fills; the items inserted before it are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,
@@ -783,6 +827,10 @@ where
     /// Builds from an iterator, skipping duplicates. `O(n²)`: each item is scanned
     /// against those already kept (an unsorted set has no faster dedup without
     /// `Ord`). For large inputs prefer a [`SortedSet`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the rejected element if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, CapacityError<S::Elem>>
     where
         I: IntoIterator<Item = S::Elem>,

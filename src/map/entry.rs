@@ -99,8 +99,12 @@ where
         self
     }
 
-    /// Returns the value for the key, inserting `default` if vacant. `Err` (carrying the
-    /// rejected `(key, default)`) only when a bounded store is at capacity.
+    /// Returns the value for the key, inserting `default` if vacant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, default)` only when the
+    /// key is absent and a bounded store is at capacity.
     pub fn or_try_insert(self, default: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         match self {
             Entry::Occupied(e) => Ok(e.into_mut()),
@@ -110,6 +114,11 @@ where
 
     /// Like [`or_try_insert`](Self::or_try_insert) but computes the default lazily,
     /// so it runs `f` only when the key is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, f())` only when the key
+    /// is absent and a bounded store is at capacity.
     pub fn or_try_insert_with<F: FnOnce() -> V>(
         self,
         f: F,
@@ -214,8 +223,12 @@ where
         self.key
     }
 
-    /// Inserts `value` for the key and returns a mutable reference to it. `Err`
-    /// (carrying the rejected `(key, value)`) only when a bounded store is full.
+    /// Inserts `value` for the key and returns a mutable reference to it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, value)` only when a
+    /// bounded store is full.
     pub fn try_insert(self, value: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         let VacantEntry { store, index, key } = self;
         store.try_insert_at(index, (key, value))?;

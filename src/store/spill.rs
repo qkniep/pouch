@@ -97,6 +97,12 @@ impl<A: Store, B: Store> Spill<A, B> {
     /// use it when the spill tier needs a runtime resource it can't `new()`, like
     /// a [`ScratchVec`](crate::ScratchVec) borrowing a buffer. When both tiers are
     /// `StoreNew` and empty, [`StoreNew::new`] is the no-argument shortcut.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if either tier is non-empty. The spill tier must be
+    /// able to hold at least the inline tier's capacity; if it is smaller, a later
+    /// insert that triggers the migration panics.
     pub fn from_tiers(inline: A, spill: B) -> Self {
         debug_assert!(
             inline.is_empty() && spill.is_empty(),
