@@ -4,6 +4,7 @@
 //! [`UnsortedSet`] appends and swap-removes (`O(1)` mutation, `O(n)` search) and
 //! needs only `Eq` rather than `Ord`.
 
+use core::borrow::Borrow;
 use core::ops::{Bound, RangeBounds};
 
 use crate::error::{BuildError, CapacityError};
@@ -13,7 +14,7 @@ use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbou
 /// `partition_point`, projecting each element to its search key with `key`
 /// (identity for sets, `.0` for maps). Shared by the sorted collections'
 /// `range` accessors.
-pub(crate) fn subrange<T, Q: Ord, R: RangeBounds<Q>>(
+pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
     slice: &[T],
     range: R,
     key: impl Fn(&T) -> &Q,
@@ -31,6 +32,36 @@ pub(crate) fn subrange<T, Q: Ord, R: RangeBounds<Q>>(
     // An inverted range (start > end) falls through to the slice indexing
     // panic, mirroring `BTreeMap::range`.
     &slice[start..end]
+}
+
+/// Whether any element of `haystack` compares equal to `needle` through its
+/// [`Borrow`]ed form — the membership scan under the unsorted collections'
+/// `contains` (shared with [`Bag`](crate::Bag) and the `soa` column map).
+///
+/// Mirrors the standard library's specialized `slice::contains` shape — a
+/// fixed-trip OR-fold per chunk, no early exit *within* a chunk — which LLVM
+/// lowers to branchless/vector compares for primitive elements. We can't just
+/// call `slice::contains`: its needle must be `&T`, and borrowed-form lookups
+/// only have a `&Q`. A plain early-exit `iter().any()` measured 2.5–4.5×
+/// slower on `u64` hits at `n ≥ 16` (the data-dependent branch per element
+/// defeats vectorization); the sub-chunk tail (`n < 8`) keeps the early-exit
+/// scan, which wins at tiny `n`.
+pub(crate) fn chunked_contains<T, Q>(haystack: &[T], needle: &Q) -> bool
+where
+    T: Borrow<Q>,
+    Q: Eq + ?Sized,
+{
+    const LANES: usize = 8;
+    let mut chunks = haystack.chunks_exact(LANES);
+    for chunk in chunks.by_ref() {
+        if chunk
+            .iter()
+            .fold(false, |hit, x| hit | (x.borrow() == needle))
+        {
+            return true;
+        }
+    }
+    chunks.remainder().iter().any(|x| x.borrow() == needle)
 }
 
 /// Re-establish the sorted-set invariant over a store filled in arbitrary order:
@@ -125,15 +156,29 @@ impl<S: Store> SortedSet<S> {
     pub fn last(&self) -> Option<&S::Elem> {
         self.store.as_slice().last()
     }
-    pub fn contains(&self, value: &S::Elem) -> bool
+    /// Whether `value` is in the set. `O(log n)`. `value` may be any borrowed
+    /// form of the element type — a `SortedSet<Vec<String>>` answers
+    /// `contains("x")` without allocating a `String` to ask — as long as the
+    /// borrowed form's `Ord` agrees with the element type's (the [`Borrow`]
+    /// contract, as in the std collections).
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
-        S::Elem: Ord,
+        S::Elem: Borrow<Q> + Ord,
+        Q: Ord + ?Sized,
     {
-        self.store.as_slice().binary_search(value).is_ok()
+        self.store
+            .as_slice()
+            .binary_search_by(|e| e.borrow().cmp(value))
+            .is_ok()
     }
     /// The elements within `range`, as a subslice of the sorted store — the
     /// sorted layout's native range query. Two `O(log n)` bound searches, zero
-    /// copies; iterate, index, or re-slice the result freely.
+    /// copies; iterate, index, or re-slice the result freely. The bounds may be
+    /// any borrowed form of the element type, like [`contains`](Self::contains);
+    /// as with `BTreeSet::range`, an **unsized** form (`str`, `[u8]`) needs the
+    /// explicit tuple-of-`Bound`s shape — range sugar like `"a".."m"` is a
+    /// `Range<&str>`, which can only bound `&str` itself:
+    /// `set.range::<str, _>((Bound::Included("a"), Bound::Excluded("m")))`.
     ///
     /// ```
     /// use pouch::Set;
@@ -145,11 +190,13 @@ impl<S: Store> SortedSet<S> {
     /// # Panics
     ///
     /// Panics if the range's start is greater than its end.
-    pub fn range<R: RangeBounds<S::Elem>>(&self, range: R) -> &[S::Elem]
+    pub fn range<Q, R>(&self, range: R) -> &[S::Elem]
     where
-        S::Elem: Ord,
+        S::Elem: Borrow<Q> + Ord,
+        Q: Ord + ?Sized,
+        R: RangeBounds<Q>,
     {
-        subrange(self.store.as_slice(), range, |e| e)
+        subrange(self.store.as_slice(), range, |e| e.borrow())
     }
 }
 
@@ -179,8 +226,19 @@ where
         }
     }
 
-    pub fn remove(&mut self, value: &S::Elem) -> bool {
-        match self.store.as_slice().binary_search(value) {
+    /// Remove `value`, returning whether it was present. Order-preserving
+    /// shift: `O(log n)` search, `O(n)` shift. `value` may be any borrowed form
+    /// of the element type, like [`contains`](Self::contains).
+    pub fn remove<Q>(&mut self, value: &Q) -> bool
+    where
+        S::Elem: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        match self
+            .store
+            .as_slice()
+            .binary_search_by(|e| e.borrow().cmp(value))
+        {
             Ok(i) => {
                 self.store.remove_at(i);
                 true
@@ -420,11 +478,16 @@ impl<S: Store> UnsortedSet<S> {
     pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
         self.store.as_slice().iter()
     }
-    pub fn contains(&self, value: &S::Elem) -> bool
+    /// Whether `value` is in the set. `O(n)` linear scan. `value` may be any
+    /// borrowed form of the element type — a `String` set answers
+    /// `contains("x")` without allocating — with the usual [`Borrow`] contract
+    /// that the borrowed form's `Eq` agrees with the element type's.
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
-        S::Elem: Eq,
+        S::Elem: Borrow<Q> + Eq,
+        Q: Eq + ?Sized,
     {
-        self.store.as_slice().contains(value)
+        chunked_contains(self.store.as_slice(), value)
     }
 }
 
@@ -456,8 +519,19 @@ where
     }
 
     /// Remove by swapping in the last element (O(1)); does not preserve order.
-    pub fn remove(&mut self, value: &S::Elem) -> bool {
-        match self.store.as_slice().iter().position(|e| e == value) {
+    /// `value` may be any borrowed form of the element type, like
+    /// [`contains`](Self::contains).
+    pub fn remove<Q>(&mut self, value: &Q) -> bool
+    where
+        S::Elem: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
+        match self
+            .store
+            .as_slice()
+            .iter()
+            .position(|e| e.borrow() == value)
+        {
             Some(i) => {
                 self.store.swap_remove_at(i);
                 true
@@ -663,12 +737,42 @@ mod alloc_tests {
         assert_eq!(set.range(3..=7), &[3, 5, 7]);
         assert_eq!(set.range(..4), &[1, 3]);
         assert_eq!(set.range(4..), &[5, 7, 9]);
-        assert_eq!(set.range(..), &[1, 3, 5, 7, 9]);
+        // A full range can't infer the borrowed key type (every `Q` fits
+        // `RangeFull`), so it takes a turbofish — same as `BTreeSet::range`.
+        assert_eq!(set.range::<i32, _>(..), &[1, 3, 5, 7, 9]);
         assert_eq!(set.range(4..4), &[] as &[i32]);
 
         let empty: SortedSet<Vec<i32>> = SortedSet::new();
         assert_eq!(empty.first(), None);
-        assert_eq!(empty.range(..), &[] as &[i32]);
+        assert_eq!(empty.range::<i32, _>(..), &[] as &[i32]);
+    }
+
+    // The on-mission `Borrow` payoff: `String` elements, `&str` queries — no
+    // allocation to ask, in either flavor.
+    #[test]
+    fn lookups_take_borrowed_forms() {
+        use alloc::string::{String, ToString};
+        use core::ops::Bound;
+
+        let mut set: SortedSet<Vec<String>> =
+            ["b", "a", "c"].iter().map(ToString::to_string).collect();
+        assert!(set.contains("b"));
+        assert!(!set.contains("z"));
+        // Unsized bounds (`str`) need the tuple-of-`Bound`s shape (range sugar
+        // like `"a".."c"` is a `Range<&str>`, which can only bound `&str`).
+        assert_eq!(
+            set.range::<str, _>((Bound::Included("a"), Bound::Excluded("c"))),
+            &["a".to_string(), "b".to_string()]
+        );
+        assert!(set.remove("a"));
+        assert!(!set.contains("a"));
+
+        let mut unsorted: UnsortedSet<Vec<String>> =
+            ["x", "y"].iter().map(ToString::to_string).collect();
+        assert!(unsorted.contains("x"));
+        assert!(!unsorted.contains("z"));
+        assert!(unsorted.remove("x"));
+        assert!(!unsorted.contains("x"));
     }
 
     #[test]

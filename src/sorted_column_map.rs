@@ -36,6 +36,8 @@
 //! [`remove`](SortedColumnMap::remove) shift *both* columns in lockstep (`O(log
 //! n)` search, `O(n)` shift).
 
+use core::borrow::Borrow;
+
 use crate::column_map::{combined_capacity, ColumnEntry, OccupiedColumnEntry, VacantColumnEntry};
 use crate::error::{BuildError, CapacityError};
 use crate::store::{Store, StoreMut, StoreNew, Unbounded};
@@ -132,25 +134,45 @@ where
     /// entry; `Err(i)` is the insertion point that keeps the column sorted.
     /// Every key lookup — `get`, `contains_key`, `try_insert`, `remove`,
     /// the builders — routes through this one search, so they can never
-    /// disagree on which entry is "the one for this key" (and a future
-    /// `Borrow`/comparator match lands in exactly one place).
-    fn search(&self, key: &K) -> Result<usize, usize> {
-        self.keys.as_slice().binary_search(key)
+    /// disagree on which entry is "the one for this key" (and the
+    /// `Borrow`-keyed match — and any future comparator — lands in exactly
+    /// one place).
+    fn search<Q>(&self, key: &Q) -> Result<usize, usize>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.keys
+            .as_slice()
+            .binary_search_by(|k| k.borrow().cmp(key))
     }
 
     // No E0311 lifetime dance here (unlike `SortedMap::get`): `values.as_slice()`
     // is already `&[V]`, so projecting `&V` needs no associated-type-projection
     // bound — elision ties the result to `&self`.
-    pub fn get(&self, key: &K) -> Option<&V> {
+    //
+    // `key` may be any borrowed form of `K` (a `String`-keyed column map answers
+    // `get("k")` without allocating), with the usual `Borrow` contract that the
+    // borrowed form's `Ord` agrees with `K`'s.
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         self.search(key).ok().map(|i| &self.values.as_slice()[i])
     }
 
     /// Whether `key` is present. `O(log n)`. Unlike
     /// [`UnsortedColumnMap`](crate::UnsortedColumnMap), which scans its key column with a
-    /// vectorizable boolean `contains`, the sorted layout shares the `O(log
+    /// chunked boolean fold, the sorted layout shares the `O(log
     /// n)` binary search with [`get`](Self::get): a linear scan would
-    /// forfeit the very `O(log n)` the ordering buys.
-    pub fn contains_key(&self, key: &K) -> bool {
+    /// forfeit the very `O(log n)` the ordering buys. `key` may be any
+    /// borrowed form of `K`, like [`get`](Self::get).
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         self.search(key).is_ok()
     }
 }
@@ -165,8 +187,13 @@ where
     /// update without the [`entry`](Self::entry) ceremony. `O(log n)`. No E0311
     /// lifetime dance (unlike [`SortedMap::get_mut`](crate::SortedMap::get_mut)):
     /// the value column is already `&mut [V]`, so elision ties the result to
-    /// `&mut self`.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+    /// `&mut self`. `key` may be any borrowed form of `K`, like
+    /// [`get`](Self::get).
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         let i = self.search(key).ok()?;
         Some(&mut self.values.as_mut_slice()[i])
     }
@@ -209,8 +236,13 @@ where
     /// Remove the entry for `key`, returning its value. Order-preserving shift
     /// in *both* columns (not the swap-remove
     /// [`UnsortedColumnMap`](crate::UnsortedColumnMap) can use): `O(log n)` search,
-    /// `O(n)` shift.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    /// `O(n)` shift. `key` may be any borrowed form of `K`, like
+    /// [`get`](Self::get).
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         match self.search(key) {
             Ok(i) => {
                 self.keys.remove_at(i);
