@@ -14,16 +14,82 @@
 //! tiers no crate ships — e.g. `Spill<ArrayVec<T, N>, ScratchVec<T>>` for a
 //! two-level, fully allocation-free store.
 
+use core::cmp::Ordering;
+use core::hash::{Hash, Hasher};
+
 use super::{push, Store, StoreMut, StoreNew, Unbounded};
 use crate::error::CapacityError;
 
 /// Two-tier store: `inline` until it fills, then everything migrates to `spill`
 /// and stays there. See the module docs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Spill<A, B> {
     inline: A,
     spill: B,
     spilled: bool,
+}
+
+// Comparisons and hashing are manual, over `as_slice()` — the *logical*
+// contents — not the struct fields: which tier the elements currently live in
+// is position, not content. A structural derive would compare `spilled` and
+// both tiers, calling a spilled-then-shrunk store unequal to a never-spilled
+// one holding the same elements. The slice-based impls keep the collection
+// derives (`SortedSet<Spill<…>>: Eq/Ord/Hash`) semantic, matching every real
+// backend (whose `Eq`/`Ord`/`Hash` behave like its `as_slice()`).
+impl<A, B> PartialEq for Spill<A, B>
+where
+    A: Store,
+    B: Store<Elem = A::Elem>,
+    A::Elem: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<A, B> Eq for Spill<A, B>
+where
+    A: Store,
+    B: Store<Elem = A::Elem>,
+    A::Elem: Eq,
+{
+}
+
+// `PartialOrd` can't defer to `cmp` — its element bound is only `PartialOrd`
+// (matching the slice impls it delegates to), so the two impls are separate.
+impl<A, B> PartialOrd for Spill<A, B>
+where
+    A: Store,
+    B: Store<Elem = A::Elem>,
+    A::Elem: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
+    }
+}
+
+impl<A, B> Ord for Spill<A, B>
+where
+    A: Store,
+    B: Store<Elem = A::Elem>,
+    A::Elem: Ord,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+impl<A, B> Hash for Spill<A, B>
+where
+    A: Store,
+    B: Store<Elem = A::Elem>,
+    A::Elem: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Slice hashing (length prefix + elements) — the same shape `Vec` and
+        // the inline backends hash with.
+        self.as_slice().hash(state);
+    }
 }
 
 impl<A: Store, B: Store> Spill<A, B> {
@@ -270,6 +336,36 @@ mod tests {
         push(&mut s, 9).expect("room");
         assert!(!s.is_spilled()); // and the inline tier is live again
         assert_eq!(s.as_slice(), &[9]);
+    }
+
+    // Equality and ordering are content-based (`as_slice`), not structural: a
+    // spilled-then-shrunk store equals a never-spilled one holding the same
+    // elements, even though their tiers differ.
+    #[cfg(all(feature = "arrayvec", feature = "alloc"))]
+    #[test]
+    fn eq_and_ord_ignore_spill_state() {
+        use alloc::vec::Vec;
+
+        use arrayvec::ArrayVec;
+
+        let mut spilled: Spill<ArrayVec<u32, 2>, Vec<u32>> = StoreNew::new();
+        for x in [1, 2, 3] {
+            push(&mut spilled, x).expect("unbounded via Vec");
+        }
+        // Shrink back under the inline bound; the store stays spilled.
+        spilled.remove_at(2);
+        assert!(spilled.is_spilled());
+        assert_eq!(spilled.as_slice(), &[1, 2]);
+
+        let mut inline: Spill<ArrayVec<u32, 2>, Vec<u32>> = StoreNew::new();
+        push(&mut inline, 1).expect("room");
+        push(&mut inline, 2).expect("room");
+        assert!(!inline.is_spilled());
+
+        assert_eq!(spilled, inline); // same contents, different tiers
+        assert_eq!(spilled.cmp(&inline), core::cmp::Ordering::Equal);
+        push(&mut inline, 3).expect("room"); // now [1, 2, 3]
+        assert!(spilled < inline); // slice-lexicographic, tier-blind
     }
 
     // `reserve` pre-arms the tier the elements will live in: a projected

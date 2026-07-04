@@ -48,7 +48,14 @@ use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 /// the `&[(K, V)]` view for a dense key column the binary search strides
 /// through without touching values (a win only for large values; see the module
 /// docs). Needs `K: Ord`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+// The stored order is canonical (sorted by key, unique keys), so the structural
+// derives are the semantic ones, as for `SortedMap` — this map can key another
+// map or live in a `BTreeSet`. One caveat: the derived `PartialOrd`/`Ord`
+// compare **column-wise** (all keys, then all values) — a valid total order
+// consistent with `Eq`, but not the entry-interleaved order of the AoS
+// `SortedMap`/`BTreeMap`; don't expect the two flavors to sort collections of
+// maps identically.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SortedColumnMap<SK, SV> {
     keys: SK,
     values: SV,

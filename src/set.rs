@@ -96,7 +96,14 @@ where
 }
 
 /// A set kept sorted in its backing store; lookup is `binary_search`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+// The stored order is canonical (sorted, deduplicated), so the structural
+// derives are the semantic ones: equal sets are byte-identical stores, and the
+// derived `Hash`/`PartialOrd`/`Ord` (lexicographic over elements in ascending
+// order, exactly `BTreeSet`'s) are consistent with the derived `PartialEq`.
+// That's what lets a `SortedSet` key another map or live in a `BTreeSet` — the
+// nested-collections niche the crate is built for. The unsorted twin can
+// derive none of these (swap-remove makes its stored order incidental).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SortedSet<S> {
     store: S,
 }
@@ -470,10 +477,11 @@ where
 /// swap-removes. The unsorted counterpart of [`SortedSet`] — prefer it when
 /// `Elem` isn't `Ord`, or when n is small enough that skipping the sorted
 /// insert's shift wins.
-// Derives `Clone` but not `PartialEq`/`Eq`: correct set equality is
-// order-independent, yet swap-remove lets two equal sets store their elements in
-// different orders, so a structural derive would wrongly call them unequal. The
-// sorted twin derives equality because its stored order is canonical.
+// Derives `Clone` but not `PartialEq`/`Eq` (nor `Hash`/`Ord`): correct set
+// equality is order-independent, yet swap-remove lets two equal sets store their
+// elements in different orders, so a structural derive would wrongly call them
+// unequal. The sorted twin derives all of these because its stored order is
+// canonical.
 #[derive(Clone, Debug)]
 pub struct UnsortedSet<S> {
     store: S,
@@ -809,6 +817,28 @@ mod alloc_tests {
         let empty: SortedSet<Vec<i32>> = SortedSet::new();
         assert_eq!(empty.first(), None);
         assert_eq!(empty.range::<i32, _>(..), &[] as &[i32]);
+    }
+
+    // The sorted flavor derives `PartialOrd`/`Ord`/`Hash` off its canonical
+    // stored order, so it nests: element-lexicographic ordering (BTreeSet's),
+    // membership in an outer BTreeSet, dedup of equal inner sets.
+    #[test]
+    fn sorted_set_orders_and_nests() {
+        use alloc::collections::BTreeSet;
+
+        let a: SortedSet<Vec<i32>> = [1, 2].into_iter().collect();
+        let b: SortedSet<Vec<i32>> = [1, 3].into_iter().collect();
+        let prefix: SortedSet<Vec<i32>> = [1].into_iter().collect();
+        assert!(a < b); // element-lexicographic, like BTreeSet
+        assert!(prefix < a); // a strict prefix sorts first
+
+        let mut nested: BTreeSet<SortedSet<Vec<i32>>> = BTreeSet::new();
+        nested.insert(a.clone());
+        nested.insert(b);
+        nested.insert(a.clone()); // equal inner set — deduped by the outer set
+        assert_eq!(nested.len(), 2);
+        assert!(nested.contains(&a));
+        assert_eq!(nested.iter().next(), Some(&a)); // smallest first
     }
 
     // `store`/`into_store` round-trip with `from_store`, and `reserve` is
