@@ -83,7 +83,7 @@ pub use bag::Bag;
 pub use column_map::{ColumnEntry, OccupiedColumnEntry, UnsortedColumnMap, VacantColumnEntry};
 pub use error::{BuildError, CapacityError};
 pub use map::{Entry, MapIter, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
-pub use set::{SortedSet, UnsortedSet};
+pub use set::{Difference, Intersection, SortedSet, SymmetricDifference, Union, UnsortedSet};
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 #[cfg(feature = "soa")]
