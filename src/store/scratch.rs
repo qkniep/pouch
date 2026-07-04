@@ -31,7 +31,7 @@ pub struct ScratchVec<'a, T> {
 }
 
 impl<'a, T> ScratchVec<'a, T> {
-    /// Wrap `buf` as empty scratch storage (logical length 0). The values already
+    /// Wraps `buf` as empty scratch storage (logical length 0). The values already
     /// in `buf` are treated as junk and overwritten as elements are inserted.
     pub fn new(buf: &'a mut [T]) -> Self {
         ScratchVec { buf, len: 0 }

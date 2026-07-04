@@ -43,7 +43,7 @@ mod entry;
 
 pub use entry::{ColumnEntry, OccupiedColumnEntry, VacantColumnEntry};
 
-/// Effective bound of a two-column map: the tighter of the two columns' caps
+/// Returns the effective bound of a two-column map: the tighter of the two columns' caps
 /// (`None` = unbounded), mirroring `Capped`'s min-of-bounds rule. Shared with
 /// [`SortedColumnMap`](crate::SortedColumnMap), the sorted two-column map.
 pub(crate) fn combined_capacity(a: Option<usize>, b: Option<usize>) -> Option<usize> {
@@ -54,7 +54,7 @@ pub(crate) fn combined_capacity(a: Option<usize>, b: Option<usize>) -> Option<us
     }
 }
 
-/// Index of the first slot in `keys` equal to `needle`, or `None` — the dense
+/// Returns the index of the first slot in `keys` equal to `needle`, or `None` — the dense
 /// key-column scan behind every [`UnsortedColumnMap`] lookup.
 ///
 /// Structured as a fixed-trip OR-reduction rather than a plain
@@ -136,17 +136,17 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
-    /// Effective logical capacity: the `min` of the two columns' bounds (`None`
-    /// = unbounded). Capping either column caps the map.
+    /// Returns the effective logical capacity: the `min` of the two columns' bounds
+    /// (`None` = unbounded). Capping either column caps the map.
     pub fn capacity(&self) -> Option<usize> {
         combined_capacity(self.keys.capacity(), self.values.capacity())
     }
-    /// The keys as a contiguous slice — the dense scan target. `zip` with
+    /// Returns the keys as a contiguous slice — the dense scan target. `zip` with
     /// [`values`](Self::values) to iterate entries.
     pub fn keys(&self) -> &[SK::Elem] {
         self.keys.as_slice()
     }
-    /// The values as a contiguous slice, index-aligned with
+    /// Returns the values as a contiguous slice, index-aligned with
     /// [`keys`](Self::keys).
     pub fn values(&self) -> &[SV::Elem] {
         self.values.as_slice()
@@ -154,7 +154,7 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
 }
 
 impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
-    /// Borrow the two backing stores, `(keys, values)` — the door to
+    /// Borrows the two backing stores, `(keys, values)` — the door to
     /// backend-specific introspection (`spilled()`, allocated capacity, …), as
     /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store
     /// collections. Shared-ref only: `&mut` access could desync the columns or
@@ -162,7 +162,7 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     pub fn stores(&self) -> (&SK, &SV) {
         (&self.keys, &self.values)
     }
-    /// Consume the map and hand back its stores, `(keys, values)`, entries
+    /// Consumes the map and hands back its stores, `(keys, values)`, entries
     /// intact and index-aligned — the inverse of
     /// [`from_store`](Self::from_store).
     pub fn into_stores(self) -> (SK, SV) {
@@ -171,13 +171,13 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
 }
 
 impl<SK: StoreMut, SV: StoreMut> UnsortedColumnMap<SK, SV> {
-    /// Remove every entry, clearing both columns and keeping their allocated
+    /// Removes every entry, clearing both columns and keeping their allocated
     /// capacity. Needs no `Eq` bound — it only truncates the stores.
     pub fn clear(&mut self) {
         self.keys.clear();
         self.values.clear();
     }
-    /// Pre-allocate both columns so at least `additional` more entries fit
+    /// Pre-allocates both columns so at least `additional` more entries fit
     /// without a reallocation — see
     /// [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
@@ -192,7 +192,7 @@ where
     SV: Store<Elem = V>,
     K: Eq,
 {
-    /// Wrap two stores **assumed equal-length and free of duplicate keys** —
+    /// Wraps two stores **assumed equal-length and free of duplicate keys** —
     /// the column-map invariants. No scan or alignment is performed; a
     /// length mismatch would desync key/value pairs and a duplicate key
     /// would shadow itself. Both preconditions are `debug_assert!`-checked
@@ -214,8 +214,8 @@ where
         UnsortedColumnMap { keys, values }
     }
 
-    /// Index of the entry whose key equals `key`, or `None`. Every key lookup —
-    /// `get`, `try_insert`, `remove`, `try_from_iter` — routes through this
+    /// Returns the index of the entry whose key equals `key`, or `None`. Every key lookup
+    /// — `get`, `try_insert`, `remove`, `try_from_iter` — routes through this
     /// single dense `[K]` scan, so they can never disagree on which entry
     /// is "the one for this key". This contiguous, value-free scan is the
     /// layout's whole point; [`chunked_position`] gives it the branchless,
@@ -244,7 +244,7 @@ where
         self.position(key).map(|i| &self.values.as_slice()[i])
     }
 
-    /// Whether `key` is present. `O(n)`, but unlike [`get`](Self::get) it needs
+    /// Returns `true` if `key` is present. `O(n)`, but unlike [`get`](Self::get) it needs
     /// only a yes/no answer — so it uses the boolean chunked fold
     /// (`chunked_contains`, the crate's mirror of the standard library's
     /// specialized `slice::contains`, whose `&K` needle borrowed-form lookups
@@ -268,10 +268,10 @@ where
     SV: StoreMut<Elem = V>,
     K: Eq,
 {
-    /// A mutable reference to `key`'s value, or `None` if absent — for an in-place
-    /// update without the [`entry`](Self::entry) ceremony. No E0311 lifetime dance
-    /// (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value
-    /// column is already `&mut [V]`, so elision ties the result to `&mut self`.
+    /// Returns a mutable reference to `key`'s value, or `None` if absent — for an
+    /// in-place update without the [`entry`](Self::entry) ceremony. No E0311 lifetime
+    /// dance (unlike [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the
+    /// value column is already `&mut [V]`, so elision ties the result to `&mut self`.
     /// `key` may be any borrowed form of `K`, like [`get`](Self::get).
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
@@ -282,7 +282,7 @@ where
         Some(&mut self.values.as_mut_slice()[i])
     }
 
-    /// Append a brand-new entry to both columns, or hand it back at capacity.
+    /// Appends a brand-new entry to both columns, or hands it back at capacity.
     /// The columns are length-locked, so a single pre-check against the
     /// combined bound guarantees both pushes below succeed — no
     /// half-insert, no rollback.
@@ -297,7 +297,7 @@ where
         Ok(())
     }
 
-    /// Insert or replace. Replacing an existing key touches only the value
+    /// Inserts or replaces. Replacing an existing key touches only the value
     /// column, consumes no capacity, and so can never fail — only a
     /// genuinely new key at the bound errors. O(n) lookup, O(1) to append
     /// or replace in place.
@@ -309,7 +309,7 @@ where
         self.push_entry(key, value).map(|()| None)
     }
 
-    /// Remove the entry for `key`, returning its value. Swap-removes at the
+    /// Removes the entry for `key`, returning its value. Swap-removes at the
     /// same index in both columns, keeping them aligned: O(1), order not
     /// preserved. `key` may be any borrowed form of `K`, like [`get`](Self::get).
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
@@ -322,7 +322,7 @@ where
         Some(self.values.swap_remove_at(i))
     }
 
-    /// Resolve `key`'s slot **once** and return a [`ColumnEntry`] for an
+    /// Resolves `key`'s slot **once** and returns a [`ColumnEntry`] for an
     /// insert-or-update, avoiding the second scan a separate [`get`](Self::get) +
     /// [`try_insert`](Self::try_insert) would pay. `O(n)` to locate; a vacant
     /// entry appends to both columns, an occupied one removes via `O(1)`
@@ -346,7 +346,7 @@ where
         }
     }
 
-    /// Insert every entry, one at a time, **last-wins** (a repeated key
+    /// Inserts every entry, one at a time, **last-wins** (a repeated key
     /// replaces the earlier value rather than erroring). `O(k·n)`. To
     /// reject duplicate keys instead, build a fresh map with
     /// [`try_from_iter`](Self::try_from_iter).
@@ -370,7 +370,7 @@ where
     SV: StoreMut<Elem = V> + StoreNew,
     K: Eq,
 {
-    /// Build from an iterator of entries, **requiring every key to be unique**.
+    /// Builds from an iterator of entries, **requiring every key to be unique**.
     /// `O(n²)`: each entry's key is scanned against those already kept (no
     /// faster dedup without `Ord`), and a repeated key is rejected — a map
     /// can't drop a duplicate key without arbitrarily picking a value. For
@@ -398,7 +398,7 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Eq,
 {
-    /// Infallible insert-or-replace, returning the previous value — available
+    /// Infallibly inserts or replaces, returning the previous value — available
     /// only when **both** columns are [`Unbounded`]. The infallible twin of
     /// [`try_insert`](Self::try_insert).
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
@@ -415,8 +415,8 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Eq,
 {
-    /// Last-wins, infallible — available only when **both** columns are
-    /// [`Unbounded`]. As with [`UnsortedMap`](crate::UnsortedMap), there is
+    /// Extends the map, last-wins and infallible — available only when **both** columns
+    /// are [`Unbounded`]. As with [`UnsortedMap`](crate::UnsortedMap), there is
     /// deliberately no `FromIterator`: fresh construction rejects duplicate
     /// keys, while `extend` overrides them.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {

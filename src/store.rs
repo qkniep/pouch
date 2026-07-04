@@ -36,14 +36,14 @@ pub trait Store {
         self.as_slice().is_empty()
     }
 
-    /// Logical capacity. `None` == unbounded (limited only by allocator OOM).
+    /// Returns the logical capacity. `None` == unbounded (limited only by allocator OOM).
     fn capacity(&self) -> Option<usize>;
 }
 
 /// Mutation primitives. The collection layer builds sorted/unsorted semantics
 /// on top of index-based insert/remove; the store itself is ordering-agnostic.
 pub trait StoreMut: Store {
-    /// Insert `value` at index `i` (shifting the tail right). `i <= len`.
+    /// Inserts `value` at index `i` (shifting the tail right). `i <= len`.
     /// Returns `Err` iff the store is at logical capacity.
     fn try_insert_at(
         &mut self,
@@ -51,10 +51,10 @@ pub trait StoreMut: Store {
         value: Self::Elem,
     ) -> Result<(), CapacityError<Self::Elem>>;
 
-    /// Remove and return the element at index `i`. `i < len`.
+    /// Removes and returns the element at index `i`. `i < len`.
     fn remove_at(&mut self, i: usize) -> Self::Elem;
 
-    /// Remove the element at index `i` in O(1) by swapping the last element into
+    /// Removes the element at index `i` in O(1) by swapping the last element into
     /// its place; order is **not** preserved. `i < len`. This is the unsorted
     /// collections' delete primitive — sorted ones can't use it without breaking
     /// their ordering invariant. Provided in terms of `remove_at(len - 1)`, which
@@ -69,13 +69,13 @@ pub trait StoreMut: Store {
         self.remove_at(last)
     }
 
-    /// Mutable slice, for in-place value updates (e.g. replacing a map value,
+    /// Returns a mutable slice, for in-place value updates (e.g. replacing a map value,
     /// which consumes no capacity).
     fn as_mut_slice(&mut self) -> &mut [Self::Elem];
 
     fn clear(&mut self);
 
-    /// Pre-allocate so at least `additional` more elements fit **without a
+    /// Pre-allocates so at least `additional` more elements fit **without a
     /// reallocation** — the tail-latency lever: pay the growth once up front
     /// instead of as spikes mid-burst. The promise is about *reallocation*,
     /// not logical capacity (that's [`capacity`](Store::capacity) /
@@ -91,7 +91,7 @@ pub trait StoreMut: Store {
     }
 }
 
-/// Construct an empty store. Kept separate from `Default` so that [`Capped`]
+/// Constructs an empty store. Kept separate from `Default` so that [`Capped`]
 /// (which needs a runtime cap) is excluded; use `Capped::with_capacity` /
 /// `from_store` for bounded wrappers.
 pub trait StoreNew: Store + Sized {
@@ -106,7 +106,7 @@ pub trait StoreNew: Store + Sized {
 /// store in [`Capped`] removes this guarantee by construction.
 pub trait Unbounded {}
 
-/// Append `value` at the tail. `try_insert_at(len, …)` is the universal O(1)
+/// Appends `value` at the tail. `try_insert_at(len, …)` is the universal O(1)
 /// append on every backend (a native shifting insert at `len` shifts nothing; a
 /// push-only fallback's `rotate_right(1)` runs over a 1-element tail — also a
 /// no-op), so it is the single primitive every bulk builder is built on. Errors
@@ -119,7 +119,7 @@ pub(crate) fn push<S: StoreMut>(
     store.try_insert_at(i, value)
 }
 
-/// Keep only the elements for which `f` returns `true`, preserving the order of
+/// Retains only the elements for which `f` returns `true`, preserving the order of
 /// the kept ones — the shared engine under every collection's `retain`. `O(n)`
 /// with no `Copy`/`Clone` bound: each kept element is swapped down to its final
 /// slot (the slots in between hold only doomed elements, whose relative order
@@ -143,7 +143,7 @@ pub(crate) fn retain_in<S: StoreMut>(store: &mut S, mut f: impl FnMut(&mut S::El
     }
 }
 
-/// Append every item from `iter` at the tail via [`push`] — the shared loop
+/// Appends every item from `iter` at the tail via [`push`] — the shared loop
 /// under the bulk collection builders (`try_from_iter`, `extend`, …). Consults
 /// the iterator's `size_hint` to [`reserve`](StoreMut::reserve) once up front,
 /// so a growable store pays one allocation instead of `log n` mid-append

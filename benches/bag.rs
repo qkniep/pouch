@@ -2,8 +2,8 @@
 //!
 //! A bag keeps duplicates; the sets dedup. To make the comparison apples-to-apples
 //! the inputs are **distinct** keys, so all three end up holding `n` elements — the
-//! `build` rows then measure *the cost of the set discipline a bag skips* (the sort
-//! / dedup / per-insert shift), not a difference in result size. `contains` shows
+//! `build` rows then measure *the cost of the set discipline a bag skips* (the
+//! sort/dedup/per-insert shift), not a difference in result size. `contains` shows
 //! the other side of the trade: a bag scans linearly like `UnsortedSet`, so it is
 //! not a membership structure — reach for `SortedSet` (binary search) when lookup
 //! is the workload.

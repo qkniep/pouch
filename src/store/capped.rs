@@ -37,7 +37,7 @@ pub struct Capped<S> {
 }
 
 impl<S> Capped<S> {
-    /// Wrap `inner` with a runtime cap, **assuming its current length does not
+    /// Wraps `inner` with a runtime cap, **assuming its current length does not
     /// already exceed `cap`** — the `len() <= capacity()` invariant the rest of
     /// the crate relies on (e.g. any `capacity() - len()` remaining math, which
     /// would otherwise underflow). The precondition is only `debug_assert!`-checked

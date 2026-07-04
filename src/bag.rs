@@ -48,19 +48,19 @@ impl<S: StoreNew> Default for Bag<S> {
 }
 
 impl<S: Store> Bag<S> {
-    /// Wrap a store as a bag. Every store is a valid bag (no invariant to uphold),
+    /// Wraps a store as a bag. Every store is a valid bag (no invariant to uphold),
     /// so this is infallible and needs no element bound — the cheapest of the
     /// crate's `from_store` constructors.
     pub fn from_store(store: S) -> Self {
         Bag { store }
     }
-    /// Borrow the backing store, for backend-specific introspection
+    /// Borrows the backing store, for backend-specific introspection
     /// (`spilled()`, allocated capacity, …) — see
     /// [`SortedSet::store`](crate::SortedSet::store).
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consume the bag and hand back its store, elements intact and in
+    /// Consumes the bag and hands back its store, elements intact and in
     /// insertion order — the inverse of [`from_store`](Self::from_store).
     pub fn into_store(self) -> S {
         self.store
@@ -77,16 +77,17 @@ impl<S: Store> Bag<S> {
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
-    /// Iterate the elements in insertion order.
+    /// Returns an iterator over the elements in insertion order.
     pub fn iter(&self) -> core::slice::Iter<'_, S::Elem> {
         self.store.as_slice().iter()
     }
-    /// The element at `i` in insertion order, or `None` if out of bounds.
+    /// Returns a reference to the element at `i` in insertion order, or `None` if out of
+    /// bounds.
     pub fn get(&self, i: usize) -> Option<&S::Elem> {
         self.store.as_slice().get(i)
     }
-    /// Whether any element equals `value`. `O(n)` linear scan; gated on `Eq` so the
-    /// rest of the bag stays bound-free. `value` may be any borrowed form of the
+    /// Returns `true` if any element equals `value`. `O(n)` linear scan; gated on `Eq` so
+    /// the rest of the bag stays bound-free. `value` may be any borrowed form of the
     /// element type (a `String` bag answers `contains("x")` without allocating),
     /// with the usual [`Borrow`] contract that the borrowed form's `Eq` agrees
     /// with the element type's.
@@ -97,7 +98,7 @@ impl<S: Store> Bag<S> {
     {
         chunked_contains(self.store.as_slice(), value)
     }
-    /// How many elements equal `value` — the multiset multiplicity. `O(n)`.
+    /// Returns how many elements equal `value` — the multiset multiplicity. `O(n)`.
     /// `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
     pub fn count<Q>(&self, value: &Q) -> usize
@@ -114,62 +115,62 @@ impl<S: Store> Bag<S> {
 }
 
 impl<S: StoreMut> Bag<S> {
-    /// Mutable view of the elements, for in-place edits. A bag has no invariant, so
-    /// arbitrary mutation (reorder, overwrite) is always valid.
+    /// Returns a mutable slice of the elements, for in-place edits. A bag has no
+    /// invariant, so arbitrary mutation (reorder, overwrite) is always valid.
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
     }
-    /// Iterate the elements mutably, in insertion order.
+    /// Returns a mutable iterator over the elements, in insertion order.
     pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, S::Elem> {
         self.store.as_mut_slice().iter_mut()
     }
-    /// Keep only the elements for which `f` returns `true`, preserving order.
+    /// Retains only the elements for which `f` returns `true`, preserving order.
     /// `O(n)`. The predicate gets `&mut`, so it can edit the elements it keeps —
     /// a bag has no invariant an edit could break.
     pub fn retain<F: FnMut(&mut S::Elem) -> bool>(&mut self, f: F) {
         retain_in(&mut self.store, f);
     }
-    /// Mutable reference to the element at `i`, or `None` if out of bounds.
+    /// Returns a mutable reference to the element at `i`, or `None` if out of bounds.
     pub fn get_mut(&mut self, i: usize) -> Option<&mut S::Elem> {
         self.store.as_mut_slice().get_mut(i)
     }
-    /// Remove every element, keeping the backing store's allocated capacity.
+    /// Removes every element, keeping the backing store's allocated capacity.
     pub fn clear(&mut self) {
         self.store.clear();
     }
 
-    /// Pre-allocate so at least `additional` more elements fit without a
+    /// Pre-allocates so at least `additional` more elements fit without a
     /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.store.reserve(additional);
     }
 
-    /// Append at the tail. `O(1)`. Errors with the rejected element iff a bounded
-    /// store is at capacity; a bag never rejects for any other reason.
+    /// Appends `value` at the tail. `O(1)`. Errors with the rejected element iff a
+    /// bounded store is at capacity; a bag never rejects for any other reason.
     pub fn try_push(&mut self, value: S::Elem) -> Result<(), CapacityError<S::Elem>> {
         push(&mut self.store, value)
     }
 
-    /// Remove and return the last element, or `None` if empty. `O(1)`.
+    /// Removes and returns the last element, or `None` if empty. `O(1)`.
     pub fn pop(&mut self) -> Option<S::Elem> {
         let len = self.store.len();
         (len > 0).then(|| self.store.remove_at(len - 1))
     }
 
-    /// Remove and return the element at `i` by swapping the last element into its
+    /// Removes and returns the element at `i` by swapping the last element into its
     /// place — `O(1)`, but **does not preserve order**. Panics if `i` is out of
     /// bounds. Prefer this over [`remove`](Self::remove) when order doesn't matter.
     pub fn swap_remove(&mut self, i: usize) -> S::Elem {
         self.store.swap_remove_at(i)
     }
 
-    /// Remove and return the element at `i`, shifting the tail down to preserve
+    /// Removes and returns the element at `i`, shifting the tail down to preserve
     /// order — `O(n)`. Panics if `i` is out of bounds.
     pub fn remove(&mut self, i: usize) -> S::Elem {
         self.store.remove_at(i)
     }
 
-    /// Append every item from `iter` at the tail. `O(k)` for `k` items — a bare
+    /// Appends every item from `iter` at the tail. `O(k)` for `k` items — a bare
     /// append, no dedup. On a capacity failure the items pushed so far are kept and
     /// the rejected element returned (the iterator's unconsumed tail is dropped).
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<S::Elem>>
@@ -181,7 +182,7 @@ impl<S: StoreMut> Bag<S> {
 }
 
 impl<S: StoreMut + StoreNew> Bag<S> {
-    /// Build from an iterator by appending every item, in `O(n)`. No dedup and no
+    /// Builds from an iterator by appending every item, in `O(n)`. No dedup and no
     /// element bound — the simplest bulk build in the crate. Errors with the
     /// rejected element if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, CapacityError<S::Elem>>
@@ -195,7 +196,8 @@ impl<S: StoreMut + StoreNew> Bag<S> {
 }
 
 impl<S: StoreMut + Unbounded> Bag<S> {
-    /// Infallible append — available only when the backing store is [`Unbounded`].
+    /// Infallibly appends `value` — available only when the backing store is
+    /// [`Unbounded`].
     pub fn push(&mut self, value: S::Elem) {
         match self.try_push(value) {
             Ok(()) => {}
@@ -222,7 +224,7 @@ impl<'a, S: StoreMut> IntoIterator for &'a mut Bag<S> {
     }
 }
 
-/// Consume the bag, yielding its elements in insertion order. Available when
+/// Consumes the bag, yielding its elements in insertion order. Available when
 /// the backing store is itself consumable into its elements.
 impl<S> IntoIterator for Bag<S>
 where
@@ -240,7 +242,7 @@ impl<S> FromIterator<S::Elem> for Bag<S>
 where
     S: StoreMut + StoreNew + Unbounded,
 {
-    /// `.collect()` into a bag — `O(n)`, no dedup, no element bound. Unlike the
+    /// Collects an iterator into a bag — `O(n)`, no dedup, no element bound. Unlike the
     /// maps (whose duplicate-key policy makes a fallible build), a bag's
     /// `FromIterator` can't fail on an [`Unbounded`] store.
     fn from_iter<I: IntoIterator<Item = S::Elem>>(iter: I) -> Self {
