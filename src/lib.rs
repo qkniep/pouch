@@ -45,6 +45,28 @@
 //! The same spellings work for maps — the element type is `(K, V)`:
 //! `SortedMap<ArrayVec<(K, V), N>>`, `SortedMap<Capped<Vec<(K, V)>>>`, ….
 //!
+//! # When nanoseconds matter
+//!
+//! Honest fine print for the hottest paths. If you haven't measured, stop
+//! reading — the defaults above are right.
+//!
+//!   * **Hybrid stores pay a tier branch.** `SmallVec`, `TinyVec`, and [`Spill`] must ask
+//!     "inline or spilled?" to find their elements, so every operation's `as_slice()`
+//!     costs one extra, well-predicted branch that `Vec`, `ArrayVec`, and `heapless::Vec`
+//!     don't pay (their data sits at a fixed offset). For a read-hot collection whose
+//!     size has a hard small bound, `SortedSet<ArrayVec<T, N>>` therefore beats
+//!     [`Set`]`<T>` — the hybrid's flexibility is exactly what you're not using. (To ask
+//!     a live collection which side of the branch it's on: `set.store().spilled()` /
+//!     [`Spill::is_spilled`].)
+//!   * **Build once, query forever?** Don't pay per-insert shifting: bulk-build
+//!     (`try_from_iter`, `from_sorted_iter`), wrap an already-sorted `Vec` with
+//!     `from_store` — or skip construction entirely with [`SliceSet`] / [`SliceMap`] over
+//!     a `static` sorted table (zero alloc, shared, lives in rodata/flash).
+//!   * **[`Capped`] reads for free.** The cap is one compare on *insert*; `as_slice()`
+//!     forwards untouched, so lookups cost exactly the wrapped store's.
+//!   * **Large values + lookup-heavy → the `soa` column maps** (next section): the key
+//!     scan stops dragging value payloads through cache.
+//!
 //! # Specialists
 //!
 //! Behind the non-default `soa` feature live the struct-of-arrays maps
@@ -73,6 +95,8 @@ mod bag;
 mod column_map;
 mod error;
 mod map;
+#[cfg(feature = "serde")]
+mod serde_impls;
 mod set;
 #[cfg(feature = "soa")]
 mod sorted_column_map;
@@ -130,6 +154,14 @@ pub type Set<T, const N: usize = 8> = SortedSet<SmallVec<[T; N]>>;
 /// the inline capacity (keep it small).
 #[cfg(feature = "smallvec")]
 pub type Map<K, V, const N: usize = 8> = SortedMap<SmallVec<[(K, V); N]>>;
+
+// Compile-and-run every ```rust block in the README as a doctest, so its
+// examples can't rot out of sync with the API (that already happened once —
+// dead aliases survived in the README for a whole refactor). Gated on the
+// features the examples use; `just test` (all-features) exercises it.
+#[cfg(all(doctest, feature = "smallvec", feature = "arrayvec"))]
+#[doc = include_str!("../README.md")]
+mod readme_doctests {}
 
 /// A **read-only** sorted set over a borrowed slice — no dependency, no `alloc`,
 /// so it works in any build. Wrap an already-sorted, duplicate-free slice (e.g. a

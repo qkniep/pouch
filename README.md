@@ -19,14 +19,21 @@ heap allocation instead of one per set.
 > fewer**, with the lowest memory and ~5× faster lookups. See [Benchmarks](#benchmarks).
 
 Under the hood every collection is **backend-generic**: the same set/map logic runs
-over a `Vec`, `SmallVec`, `TinyVec`, `ArrayVec`, or `heapless::Vec` — heap, inline, or
-hybrid — optionally bounded by a runtime cap. `no_std`-first.
+over a `Vec`, `SmallVec`, `TinyVec`, `ArrayVec`, `heapless::Vec`, or a **borrowed**
+slice or buffer (`&[T]`, `ScratchVec`) — heap, inline, hybrid, or borrowed — and
+stores compose: `Capped` adds a runtime bound to any store, `Spill` chains two
+tiers. And since the core never touches an allocator, the same collections run
+unchanged on `no_std` and embedded targets.
 
 > [!NOTE]
-> **Early days.** The collection layer (`SortedSet`/`SortedMap`,
-> `UnsortedSet`/`UnsortedMap`) is deliberately thin while the store traits settle.
-> An `Entry` API has landed (`map.entry(k)`); comparators are next, and the API is
-> **not yet stable**.
+> **Early days — the API is not yet stable.** The store traits are still
+> settling; expect breaking changes before 0.1. The collection layer, meanwhile,
+> is filling in: bulk constructors, an `Entry` API, std-style borrowed-key
+> lookups (`map.get("k")` on a `Map<String, _>` — no allocation to ask),
+> merge-based set algebra (`union` / `is_subset` / …), `store()` / `reserve()`
+> for backend introspection and preallocation, `Hash`/`Ord` on the sorted
+> flavors (so a set can key another map), and `serde` behind a feature.
+> Comparators are next.
 
 ## Design
 
@@ -46,18 +53,22 @@ orthogonal, so you mix them freely:
 The default `Set` / `Map` fix the combination this crate is tuned for — sorted,
 `SmallVec`-backed (inline), unbounded — so the nested-population win is the path of
 least resistance. Swap any axis (a `Vec` for one big collection, `heapless` for
-`no_std`, unsorted when elements aren't `Ord`) when your case differs.
+`no_std`, unsorted when elements aren't `Ord`) when your case differs. A fourth,
+invariant-free shape rounds out the lineup: `Bag`, a `Vec`-like sequence
+(duplicates kept, no ordering, no element bounds) that gives *composed* stores —
+`Bag<Capped<Vec<T>>>` is a capped vector — an ergonomic push/pop API.
 
-**Struct-of-arrays layout (`ColumnMap` / `SortedColumnMap`).** A map can instead keep
-keys and values in *two* parallel stores, so a lookup scans (`ColumnMap`) or
-binary-searches (`SortedColumnMap`) a dense key column without dragging values through
-cache. `ColumnMap`'s scan also *vectorizes* — `get` and `contains_key` fold to
-branchless compares the strided `(K, V)` scan can't manage, a ~2× edge on misses and
-long scans at **any** value size — and for **large values** the skipped value-column
-cache traffic stacks on top (a saving `SortedColumnMap`'s binary search shares, though
-it has no scan to vectorize). Still niche enough that the array-of-structs `UnsortedMap`
-/ `SortedMap` stay the default; reach for a column map when lookups dominate, especially
-with big values. See [Benchmarks](#benchmarks).
+**Struct-of-arrays layout (`soa` feature: `UnsortedColumnMap` / `SortedColumnMap`).**
+A map can instead keep keys and values in *two* parallel stores, so a lookup scans
+(`UnsortedColumnMap`) or binary-searches (`SortedColumnMap`) a dense key column
+without dragging values through cache. `UnsortedColumnMap`'s scan also *vectorizes* —
+`get` and `contains_key` fold to branchless compares the strided `(K, V)` scan
+can't manage, a ~2× edge on misses and long scans at **any** value size — and for
+**large values** the skipped value-column cache traffic stacks on top (a saving
+`SortedColumnMap`'s binary search shares, though it has no scan to vectorize).
+Still niche enough that the array-of-structs `UnsortedMap` / `SortedMap` stay the
+default; reach for a column map when lookups dominate, especially with big values.
+See [Benchmarks](#benchmarks).
 
 ## Complexity
 
@@ -74,7 +85,8 @@ store is a contiguous array, so the backend changes only the constant factor (se
 
 1. `O(log n)` binary search for the slot, then `O(n)` shift to keep order.
 2. `O(n)` duplicate scan, then `O(1)` append — the structural cost is `O(1)`; the
-   scan is the membership check. (A no-dedup bulk builder is planned; see the note above.)
+   scan is the membership check. (For a no-dedup sequence — `O(1)` push, duplicates
+   kept — use `Bag`.)
 3. `O(log n)` search, then `O(n)` shift.
 4. `O(n)` find, then `O(1)` swap-remove (does not preserve order).
 
@@ -88,18 +100,30 @@ Storage and bound are orthogonal to ordering (above) — any backend pairs with
 either flavor. Choose by where memory should live and whether the size is bounded;
 the asymptotics don't change.
 
-| Backend               | Storage              | Capacity      | `no_std` | Infallible `insert` | Feature *(default ✅)* | Reach for it when…           |
-| --------------------- | -------------------- | ------------- | :------: | :-----------------: | ---------------------- | ---------------------------- |
-| `Vec<T>`              | heap                 | unbounded     |    —     |         ✅          | `alloc`                | one big collection; `N` unpredictable |
-| `SmallVec<[T; N]>`    | inline `N` → heap    | unbounded     |    —     |         ✅          | `smallvec` ✅          | **the default (`Set`/`Map`)** — many small / nested |
-| `TinyVec<[T; N]>`     | inline `N` → heap    | unbounded     |    —     |         ✅          | `tinyvec` ✅           | same, 100% safe (`Elem: Default`) |
-| `ArrayVec<T, N>`      | inline `N`           | `N` (fixed)   |    ✅    |   — (`try_insert`)  | `arrayvec` ✅          | embedded; hard cap, no alloc |
-| `heapless::Vec<T, N>` | inline `N`           | `N` (fixed)   |    ✅    |   — (`try_insert`)  | `heapless` ✅          | embedded; hard cap, no alloc |
-| `Capped<S>`           | wraps any store `S`  | runtime cap   |  = `S`   |   — (`try_insert`)  | —                      | enforce a limit / backpressure |
+| Backend               | Storage              | Capacity       | `no_std` | Infallible `insert` | Feature *(default ✅)* | Reach for it when…           |
+| --------------------- | -------------------- | -------------- | :------: | :-----------------: | ---------------------- | ---------------------------- |
+| `Vec<T>`              | heap                 | unbounded      |    —     |         ✅          | `alloc`                | one big collection; `N` unpredictable |
+| `SmallVec<[T; N]>`    | inline `N` → heap    | unbounded      |    —     |         ✅          | `smallvec` ✅          | **the default (`Set`/`Map`)** — many small / nested |
+| `TinyVec<[T; N]>`     | inline `N` → heap    | unbounded      |    —     |         ✅          | `tinyvec`              | same, 100% safe (`Elem: Default`) |
+| `ArrayVec<T, N>`      | inline `N`           | `N` (fixed)    |    ✅    |   — (`try_insert`)  | `arrayvec`             | hard cap, no allocator |
+| `heapless::Vec<T, N>` | inline `N`           | `N` (fixed)    |    ✅    |   — (`try_insert`)  | `heapless`             | hard cap, no allocator (embedded) |
+| `&[T]` / `&[T; N]`    | borrowed, read-only  | = `len` (full) |    ✅    |    — (read-only)    | — *(always on)*        | `static` sorted tables in flash: `SliceSet` / `SliceMap` |
+| `ScratchVec<T>`       | borrowed `&mut [T]`  | buffer `len`   |    ✅    |   — (`try_insert`)  | — *(always on)*        | alloc-free scratch space; `Spill`'s overflow tier |
+| `Spill<A, B>`         | tier `A` → tier `B`  | = `B`'s        | = tiers  |       = `B`'s       | — *(always on)*        | custom two-tier spill, e.g. inline → borrowed buffer |
+| `Capped<S>`           | wraps any store `S`  | runtime cap    |  = `S`   |   — (`try_insert`)  | — *(always on)*        | enforce a limit / backpressure |
 
 `try_insert` is always available and returns the rejected element on a bounded
 store via `CapacityError<T>`. When the backing store is genuinely unbounded
 (`Vec`, `SmallVec`, `TinyVec`), an infallible `insert` is also available.
+
+**When you care about nanoseconds:** hybrid stores (`SmallVec`, `TinyVec`,
+`Spill`) pay a well-predicted "inline or heap?" branch on every access to find
+their elements — for a read-hot collection with a hard small bound,
+`SortedSet<ArrayVec<T, N>>` skips it. For build-once-query-forever tables,
+bulk-build, wrap an already-sorted `Vec` with `from_store`, or use
+`SliceSet`/`SliceMap` over a `static` sorted table. `Capped` reads for free
+(the cap is checked only on insert). If you haven't measured, the default
+`Set`/`Map` are right.
 
 ## Example
 
@@ -124,9 +148,9 @@ Build a sorted collection in bulk instead of inserting one at a time — `O(n lo
 or `O(n)` from already-sorted input:
 
 ```rust
-use pouch::VecSet;
+use pouch::SortedSet;
 
-let s = VecSet::try_from_iter([3, 1, 2, 3, 1]).unwrap(); // sorts + dedups once
+let s: SortedSet<Vec<u32>> = SortedSet::try_from_iter([3, 1, 2, 3, 1]).unwrap(); // sorts + dedups once
 assert_eq!(s.as_slice(), &[1, 2, 3]);
 ```
 
@@ -140,16 +164,31 @@ let mut counts: Map<&str, u32> = Map::default();
 for word in ["a", "b", "a", "a"] {
     *counts.entry(word).or_insert(0) += 1; // one search per word, not two
 }
-assert_eq!(counts.get(&"a"), Some(&3));
+assert_eq!(counts.get("a"), Some(&3));
+```
+
+Sorted sets come with merge-based algebra — `O(n + m)` walks over the sorted
+slices, no allocation, results in ascending order, and the other set may even
+use a different backend:
+
+```rust
+use pouch::Set;
+
+let a: Set<u32> = [1, 2, 3].into_iter().collect();
+let b: Set<u32> = [2, 3, 4].into_iter().collect();
+assert!(a.intersection(&b).eq(&[2, 3]));
+assert!(a.union(&b).eq(&[1, 2, 3, 4]));
+assert!(!a.is_subset(&b));
 ```
 
 Fixed-capacity backends (and any store wrapped in `Capped`) make insertion
 fallible instead of allocating without bound:
 
 ```rust
-use pouch::{ArraySet, SortedSet};
+use arrayvec::ArrayVec;
+use pouch::SortedSet;
 
-let mut s: ArraySet<u64, 3> = SortedSet::new();
+let mut s: SortedSet<ArrayVec<u64, 3>> = SortedSet::new();
 assert_eq!(s.try_insert(5), Ok(true));
 assert_eq!(s.try_insert(1), Ok(true));
 assert_eq!(s.try_insert(9), Ok(true));
@@ -161,12 +200,12 @@ Use the unsorted variants for `O(1)` insert/delete (append + swap-remove) when
 elements are cheap to scan or aren't `Ord`:
 
 ```rust
-use pouch::{UnsortedSet, UnsortedVecSet};
+use pouch::UnsortedSet;
 
-let mut s: UnsortedVecSet<&str> = UnsortedSet::new();
+let mut s: UnsortedSet<Vec<&str>> = UnsortedSet::new();
 s.insert("hello");
 s.insert("world");
-assert!(s.remove(&"hello")); // swap-remove; order is not preserved
+assert!(s.remove("hello")); // swap-remove; order is not preserved
 ```
 
 ## Benchmarks
@@ -181,10 +220,10 @@ and memory from divan's allocation profiler:
 
 | inner set                  | allocations | memory      | lookup |
 | -------------------------- | ----------: | ----------: | -----: |
-| `pouch::Set` (inline, N=4) | **105**     | **1.10 MB** | 25 µs  |
-| pouch over `Vec`           | 10 001      | 1.18 MB     | **23 µs** |
-| `HashSet`                  | 10 001      | 1.93 MB     | 137 µs |
-| `BTreeSet`                 | 17 980      | 2.20 MB     | 73 µs  |
+| `pouch::Set` (inline, N=4) | **105**     | **1.10 MB** | 28 µs  |
+| pouch over `Vec`           | 10 001      | 1.18 MB     | **24 µs** |
+| `HashSet`                  | 10 001      | 1.93 MB     | 139 µs |
+| `BTreeSet`                 | 17 980      | 2.20 MB     | 70 µs  |
 | `thincollections::ThinSet` | 10 001      | 3.02 MB     | —      |
 
 ~95× fewer allocations, the lowest memory, and ~5× faster lookups than `HashSet`.
@@ -197,29 +236,29 @@ Single-collection view — map, `n = 64`, `u64` keys:
 
 | op           | pouch Sorted | litemap | BTreeMap | HashMap | FxHashMap |
 | ------------ | ------------ | ------- | -------- | ------- | --------- |
-| build random | 385 ns       | 1.34 µs | 546 ns   | 552 ns  | **234 ns**|
-| get (hit)    | 186 ns       | 184 ns  | 227 ns   | 369 ns  | **62 ns** |
-| get (miss)   | 184 ns       | 184 ns  | 248 ns   | 356 ns  | **92 ns** |
+| build random | 250 ns       | 1.27 µs | 510 ns   | 531 ns  | **229 ns**|
+| get (hit)    | 183 ns       | 213 ns  | 224 ns   | 398 ns  | **73 ns** |
+| get (miss)   | 183 ns       | 213 ns  | 259 ns   | 317 ns  | **102 ns**|
 
 Set iteration (sum) — contiguous storage is the standout:
 
 | n    | pouch Sorted | BTreeSet | HashSet |
 | ---- | ------------ | -------- | ------- |
-| 256  | **12 ns**    | 791 ns   | 118 ns  |
-| 1024 | **56 ns**    | 3.19 µs  | 546 ns  |
+| 256  | **13 ns**    | 820 ns   | 130 ns  |
+| 1024 | **58 ns**    | 3.28 µs  | 562 ns  |
 
 Struct-of-arrays — `SortedColumnMap` (SoA, dense key column) vs `SortedMap` (AoS),
 `u64` keys, median for a batch of `n` lookups (`SortedMap` / **`SortedColumnMap`**):
 
 | op           | value | n = 16            | n = 4096            |
 | ------------ | ----- | ----------------- | ------------------- |
-| `get` hit    | 8 B   | **24 ns** / 33 ns | 28.8 µs / **23.0 µs** |
-| `get` hit    | 64 B  | **28 ns** / 33 ns | 40.1 µs / **26.2 µs** |
-| `get` miss   | 8 B   | 25 ns / **22 ns** | 28.9 µs / **21.3 µs** |
-| `get` miss   | 64 B  | 30 ns / **24 ns** | 38.5 µs / **20.9 µs** |
+| `get` hit    | 8 B   | **27 ns** / 33 ns | 29.5 µs / **22.8 µs** |
+| `get` hit    | 64 B  | **31 ns** / 33 ns | 40.1 µs / **26.0 µs** |
+| `get` miss   | 8 B   | 28 ns / **21 ns** | 29.0 µs / **20.8 µs** |
+| `get` miss   | 64 B  | 30 ns / **23 ns** | 42.1 µs / **20.8 µs** |
 
 The split wins at scale and on misses — the search skips the value column entirely
-(up to ~1.8× for 64-byte misses). The catch is small-`n` *hits*: fetching the value
+(up to ~2× for 64-byte misses). The catch is small-`n` *hits*: fetching the value
 from its separate column is a second cache line, so `SortedMap` (value beside the key)
 leads there. Hence `SortedColumnMap` is for large values + key-ordered iteration +
 lookup-heavy; otherwise `SortedMap`.
@@ -240,21 +279,31 @@ What the numbers say:
   already-sorted input pouch builds *fastest* at large `n`. A sorted `Vec` is the
   small-`n`, iteration-heavy, or `no_std` choice.
 - **Bulk construction:** `try_from_iter` (sort once) and `from_sorted_iter` (no sort)
-  beat an `insert`-per-element loop by ~6× and ~40× at `n = 1024` — a 1024-key sorted
-  set builds in ~0.89 µs from sorted input vs ~35 µs one at a time.
+  beat an `insert`-per-element loop by ~8× and ~58× at `n = 1024` — a 1024-key sorted
+  set builds in ~0.67 µs from sorted input vs ~39 µs one at a time. (Both builders
+  now `reserve` up front from `size_hint`, worth ~25% on the sorted path alone.)
 - **Iteration** over contiguous memory runs ~10–50× faster than the tree/hash maps.
 - **Backend choice moves only the constant:** at `n = 16` an inline `ArrayVec` /
-  `heapless` builds a sorted set in ~135 ns vs `Vec`'s ~187 ns (the heap allocation);
+  `heapless` builds a sorted set in ~140 ns vs `Vec`'s ~195 ns (the heap allocation);
   by `n = 256` they converge.
 
 ## Crate features
 
-- `std` *(default)* — implies `alloc`; provides `std::error::Error for CapacityError`.
-- `alloc` — the heap-backed `Vec` backend and `Capped` over growable stores.
-- `smallvec` *(default)* — the `SmallVec` backend (implies `alloc`).
-- `tinyvec` *(default)* — the `TinyVec` backend; 100% safe, requires `Elem: Default` (implies `alloc`).
-- `arrayvec` *(default)* — the fixed-capacity `ArrayVec` backend (alloc-free).
-- `heapless` *(default)* — the fixed-capacity `heapless::Vec` backend (alloc-free).
+Defaults are deliberately lean — `std` + `smallvec`, just enough for the blessed
+`Set` / `Map` aliases; every other backend is opt-in.
+
+- `std` *(default)* — implies `alloc`; provides `std::error::Error` for the error types.
+- `alloc` — the heap-backed `Vec` backend.
+- `smallvec` *(default)* — the `SmallVec` backend behind `Set`/`Map` (implies `alloc`).
+- `tinyvec` — the `TinyVec` backend; 100% safe, requires `Elem: Default` (implies `alloc`).
+- `arrayvec` — the fixed-capacity `ArrayVec` backend (alloc-free).
+- `heapless` — the fixed-capacity `heapless::Vec` backend (alloc-free).
+- `soa` — the struct-of-arrays column maps (`UnsortedColumnMap` / `SortedColumnMap`);
+  backend-agnostic, pulls in no dependency.
+- `serde` — `Serialize`/`Deserialize` for every collection (sets/bags as sequences,
+  maps as maps). Deserialization enforces the bulk-build policy: sets dedup, **maps
+  reject duplicate keys**, and a bounded store that fills is a data error — so
+  deserializing into a fixed-capacity collection is input validation for free.
 
 **MSRV:** Rust 1.87.
 
@@ -262,7 +311,9 @@ What the numbers say:
 
 The crate is `#![no_std]`. Build with `--no-default-features` and enable only the
 backends you need: `arrayvec` and `heapless` stay allocator-free (`core` only),
-while `Vec`, `smallvec`, and `tinyvec` pull in `alloc`.
+while `Vec`, `smallvec`, and `tinyvec` pull in `alloc`. The borrowed stores need
+no feature at all — a `SliceSet` lookup table, a `ScratchVec` over a stack
+buffer, or a `Spill` composing them all work under `--no-default-features`.
 
 Code size scales with what you instantiate, not with the crate: a single
 fixed-capacity collection compiles to a few hundred bytes of `.text`, on par with
