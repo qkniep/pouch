@@ -33,9 +33,10 @@ enum Kind {
     Unsorted,
 }
 
-/// A view into a single slot of a column map, returned by `entry`. Resolving the
-/// lookup once, it is either [`Occupied`](ColumnEntry::Occupied) (the key is
-/// present) or [`Vacant`](ColumnEntry::Vacant) (absent, with its insertion point
+/// A view into a single slot of a column map, returned by `entry`.
+///
+/// Resolving the lookup once, it is either [`Occupied`](ColumnEntry::Occupied) (the key
+/// is present) or [`Vacant`](ColumnEntry::Vacant) (absent, with its insertion point
 /// captured). The two-column counterpart of [`Entry`](crate::Entry).
 pub enum ColumnEntry<'a, SK, SV, K> {
     /// The key is present in the map.
@@ -204,8 +205,9 @@ where
         &mut self.values.as_mut_slice()[self.index]
     }
 
-    /// Replaces the value, returning the old one. Consumes no capacity, so it
-    /// never fails.
+    /// Replaces the value, returning the old one.
+    ///
+    /// Consumes no capacity, so it never fails.
     pub fn insert(&mut self, value: V) -> V {
         core::mem::replace(self.get_mut(), value)
     }
@@ -215,9 +217,10 @@ where
         self.remove_entry().1
     }
 
-    /// Removes the entry, returning the key and value. Both columns are vacated
-    /// in lockstep so they stay aligned: an order-preserving `remove_at`
-    /// (`O(n)` shift) for a sorted map, an `O(1)` `swap_remove_at` for an
+    /// Removes the entry, returning the key and value.
+    ///
+    /// Both columns are vacated in lockstep so they stay aligned: an order-preserving
+    /// `remove_at` (`O(n)` shift) for a sorted map, an `O(1)` `swap_remove_at` for an
     /// unsorted one.
     pub fn remove_entry(self) -> (K, V) {
         match self.kind {

@@ -22,17 +22,20 @@ use core::{fmt, mem};
 use crate::error::CapacityError;
 use crate::store::{Store, StoreMut};
 
-/// A growable store backed by a borrowed `&'a mut [T]`. Capacity is fixed at the
-/// buffer length; it never allocates. See the module docs for the `T: Default`
-/// requirement on mutation.
+/// A growable store backed by a borrowed `&'a mut [T]`.
+///
+/// Capacity is fixed at the buffer length; it never allocates. See the module docs for
+/// the `T: Default` requirement on mutation.
 pub struct ScratchVec<'a, T> {
     buf: &'a mut [T],
     len: usize,
 }
 
 impl<'a, T> ScratchVec<'a, T> {
-    /// Wraps `buf` as empty scratch storage (logical length 0). The values already
-    /// in `buf` are treated as junk and overwritten as elements are inserted.
+    /// Wraps `buf` as empty scratch storage (logical length 0).
+    ///
+    /// The values already in `buf` are treated as junk and overwritten as elements are
+    /// inserted.
     pub fn new(buf: &'a mut [T]) -> Self {
         ScratchVec { buf, len: 0 }
     }
