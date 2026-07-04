@@ -7,6 +7,29 @@ use crate::error::CapacityError;
 /// (otherwise infallible) inserts into recoverable [`CapacityError`]s. This is
 /// the factoring that makes `max_capacity` orthogonal to storage: cap logic is
 /// written once here rather than per backend.
+///
+/// # Admission control
+///
+/// Beyond porting fixed-capacity semantics to growable stores, `Capped` is a
+/// backpressure primitive: a bounded queue or cache that turns "full" into a
+/// recoverable, **value-preserving** signal instead of unbounded growth or an
+/// abort — the caller decides whether to shed, requeue, or block, with the
+/// rejected element handed back intact.
+///
+/// ```
+/// use pouch::{Bag, Capped};
+///
+/// // An in-flight job queue: admit at most 3, hand overflow back.
+/// let mut inflight: Bag<Capped<Vec<u32>>> = Bag::from_store(Capped::with_capacity(3));
+/// let mut shed = Vec::new();
+/// for job in 0..5 {
+///     if let Err(rejected) = inflight.try_push(job) {
+///         shed.push(rejected.into_inner()); // the job survives rejection
+///     }
+/// }
+/// assert_eq!(inflight.len(), 3);
+/// assert_eq!(shed, [3, 4]);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capped<S> {
     inner: S,
