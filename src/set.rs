@@ -10,6 +10,10 @@ use core::ops::{Bound, RangeBounds};
 use crate::error::{BuildError, CapacityError};
 use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbounded};
 
+mod algebra;
+
+pub use algebra::{Difference, Intersection, SymmetricDifference, Union};
+
 /// Resolve a `RangeBounds` over a sorted slice into index bounds via
 /// `partition_point`, projecting each element to its search key with `key`
 /// (identity for sets, `.0` for maps). Shared by the sorted collections'
@@ -230,6 +234,95 @@ impl<S: Store> SortedSet<S> {
         R: RangeBounds<Q>,
     {
         subrange(self.store.as_slice(), range, |e| e.borrow())
+    }
+
+    // --- Set algebra ------------------------------------------------------
+    // All merge walks over the two already-sorted slices: `O(n + m)`, no
+    // allocation, results in ascending order. `other` may use a *different*
+    // store (`S2`) — a heap set can union with a `static` `SliceSet` table.
+
+    /// Whether every element of `self` is in `other`. `O(n + m)` merge walk,
+    /// switching to `O(n log m)` binary searches when `self` is ≥16× smaller.
+    pub fn is_subset<S2>(&self, other: &SortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        algebra::is_subset(self.as_slice(), other.as_slice())
+    }
+
+    /// Whether every element of `other` is in `self` —
+    /// [`is_subset`](Self::is_subset) with the arguments flipped.
+    pub fn is_superset<S2>(&self, other: &SortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        other.is_subset(self)
+    }
+
+    /// Whether `self` and `other` share no element. `O(n + m)` merge walk,
+    /// switching to binary searches when one side is ≥16× smaller.
+    pub fn is_disjoint<S2>(&self, other: &SortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        algebra::is_disjoint(self.as_slice(), other.as_slice())
+    }
+
+    /// Iterate the elements in `self`, `other`, or both, ascending — each
+    /// shared element once. Collect into an [`Unbounded`] set with
+    /// `.cloned().collect()`, or `try_extend` a bounded one.
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let a: Set<u32> = [1, 2, 3].into_iter().collect();
+    /// let b: Set<u32> = [2, 3, 4].into_iter().collect();
+    /// assert!(a.union(&b).eq(&[1, 2, 3, 4]));
+    /// assert!(a.intersection(&b).eq(&[2, 3]));
+    /// assert!(a.difference(&b).eq(&[1]));
+    /// assert!(a.symmetric_difference(&b).eq(&[1, 4]));
+    /// ```
+    pub fn union<'a, S2>(&'a self, other: &'a SortedSet<S2>) -> Union<'a, S::Elem>
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        Union::new(self.as_slice(), other.as_slice())
+    }
+
+    /// Iterate the elements in both `self` and `other`, ascending. See
+    /// [`union`](Self::union).
+    pub fn intersection<'a, S2>(&'a self, other: &'a SortedSet<S2>) -> Intersection<'a, S::Elem>
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        Intersection::new(self.as_slice(), other.as_slice())
+    }
+
+    /// Iterate the elements in `self` but not `other`, ascending. See
+    /// [`union`](Self::union).
+    pub fn difference<'a, S2>(&'a self, other: &'a SortedSet<S2>) -> Difference<'a, S::Elem>
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        Difference::new(self.as_slice(), other.as_slice())
+    }
+
+    /// Iterate the elements in exactly one of `self`, `other`, ascending. See
+    /// [`union`](Self::union).
+    pub fn symmetric_difference<'a, S2>(
+        &'a self,
+        other: &'a SortedSet<S2>,
+    ) -> SymmetricDifference<'a, S::Elem>
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Ord,
+    {
+        SymmetricDifference::new(self.as_slice(), other.as_slice())
     }
 }
 
@@ -556,6 +649,45 @@ impl<S: Store> UnsortedSet<S> {
     {
         chunked_contains(self.store.as_slice(), value)
     }
+
+    // Without an order there is no merge walk, so the predicates are scans:
+    // `O(n·m)`, honest about what `Eq`-only membership costs. For the
+    // element-yielding algebra (union & co.) use the sorted flavor. As there,
+    // `other` may use a different store.
+
+    /// Whether every element of `self` is in `other`. `O(n·m)` — a
+    /// [`contains`](Self::contains) scan per element.
+    pub fn is_subset<S2>(&self, other: &UnsortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Eq,
+    {
+        self.len() <= other.len() && self.iter().all(|x| other.contains(x))
+    }
+
+    /// Whether every element of `other` is in `self` —
+    /// [`is_subset`](Self::is_subset) with the arguments flipped.
+    pub fn is_superset<S2>(&self, other: &UnsortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Eq,
+    {
+        other.is_subset(self)
+    }
+
+    /// Whether `self` and `other` share no element. `O(n·m)`, scanning with
+    /// the smaller set on the outside.
+    pub fn is_disjoint<S2>(&self, other: &UnsortedSet<S2>) -> bool
+    where
+        S2: Store<Elem = S::Elem>,
+        S::Elem: Eq,
+    {
+        if self.len() <= other.len() {
+            self.iter().all(|x| !other.contains(x))
+        } else {
+            other.iter().all(|x| !self.contains(x))
+        }
+    }
 }
 
 impl<S: StoreMut> UnsortedSet<S> {
@@ -817,6 +949,64 @@ mod alloc_tests {
         let empty: SortedSet<Vec<i32>> = SortedSet::new();
         assert_eq!(empty.first(), None);
         assert_eq!(empty.range::<i32, _>(..), &[] as &[i32]);
+    }
+
+    #[test]
+    fn set_algebra_merges_ascending() {
+        let a: SortedSet<Vec<u32>> = [1, 2, 3, 5].into_iter().collect();
+        let b: SortedSet<Vec<u32>> = [2, 3, 4].into_iter().collect();
+        assert!(a.union(&b).eq(&[1, 2, 3, 4, 5]));
+        assert!(a.intersection(&b).eq(&[2, 3]));
+        assert!(a.difference(&b).eq(&[1, 5]));
+        assert!(b.difference(&a).eq(&[4])); // difference is directional
+        assert!(a.symmetric_difference(&b).eq(&[1, 4, 5]));
+
+        // The iterators collect straight back into a set.
+        let u: SortedSet<Vec<u32>> = a.union(&b).copied().collect();
+        assert_eq!(u.as_slice(), &[1, 2, 3, 4, 5]);
+
+        // Cross-store: the other set only contributes a sorted slice, so a
+        // heap set can union with a read-only static-table SliceSet.
+        static TABLE: [u32; 2] = [4, 6];
+        let table = crate::SliceSet::from_store(&TABLE[..]);
+        assert!(a.union(&table).eq(&[1, 2, 3, 4, 5, 6]));
+
+        // Empty edges.
+        let empty: SortedSet<Vec<u32>> = SortedSet::new();
+        assert!(empty.union(&a).eq(a.iter()));
+        assert_eq!(empty.intersection(&a).count(), 0);
+        assert!(empty.difference(&a).next().is_none());
+        assert!(a.symmetric_difference(&empty).eq(a.iter()));
+    }
+
+    #[test]
+    fn subset_superset_disjoint() {
+        let small: SortedSet<Vec<u32>> = [2, 40].into_iter().collect();
+        // 64 elements: the ≥16× size gap exercises the binary-search path.
+        let big: SortedSet<Vec<u32>> = (0..64).map(|x| x * 2).collect();
+        assert!(small.is_subset(&big));
+        assert!(big.is_superset(&small));
+        assert!(!big.is_subset(&small));
+        assert!(!small.is_disjoint(&big));
+        let odd: SortedSet<Vec<u32>> = [1, 3, 41].into_iter().collect();
+        assert!(small.is_disjoint(&odd) && odd.is_disjoint(&big));
+
+        // Similar sizes take the linear merge path.
+        let cover: SortedSet<Vec<u32>> = [2, 4, 40].into_iter().collect();
+        assert!(small.is_subset(&cover));
+        assert!(!cover.is_subset(&small)); // longer than `small`
+        let empty: SortedSet<Vec<u32>> = SortedSet::new();
+        assert!(empty.is_subset(&small) && small.is_superset(&empty));
+        assert!(empty.is_disjoint(&empty));
+
+        // The unsorted flavor gets the Eq-only scan predicates.
+        let ua: UnsortedSet<Vec<u32>> = [3, 1].into_iter().collect();
+        let ub: UnsortedSet<Vec<u32>> = [1, 2, 3].into_iter().collect();
+        assert!(ua.is_subset(&ub));
+        assert!(ub.is_superset(&ua));
+        assert!(!ua.is_disjoint(&ub));
+        let uc: UnsortedSet<Vec<u32>> = [9].into_iter().collect();
+        assert!(ua.is_disjoint(&uc));
     }
 
     // The sorted flavor derives `PartialOrd`/`Ord`/`Hash` off its canonical

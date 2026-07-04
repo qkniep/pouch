@@ -16,11 +16,76 @@ mod entry;
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
 
 /// Iterator over a map's entries as `(&K, &V)` pairs — what [`SortedMap::iter`]
-/// / [`UnsortedMap::iter`] return and `&map` iterates as. A plain projection of
-/// the underlying `&[(K, V)]` slice iterator, so it is double-ended and
-/// exact-size.
-pub type MapIter<'a, K, V> =
-    core::iter::Map<core::slice::Iter<'a, (K, V)>, fn(&'a (K, V)) -> (&'a K, &'a V)>;
+/// / [`UnsortedMap::iter`] return and `&map` iterates as. A thin wrapper over
+/// the underlying `&[(K, V)]` slice iterator (double-ended, exact-size, fused).
+// A named struct rather than an `iter::Map<_, fn(…)>` type alias: naming the
+// alias forces the projection into a function *pointer*, which can survive to
+// codegen as an indirect call — and a map iterated in a hot loop is exactly
+// where that shows. The struct keeps the projection a direct, inlinable call
+// and leaves room to change the representation later.
+#[derive(Clone, Debug)]
+pub struct MapIter<'a, K, V> {
+    inner: core::slice::Iter<'a, (K, V)>,
+}
+
+impl<'a, K, V> MapIter<'a, K, V> {
+    fn new(entries: &'a [(K, V)]) -> Self {
+        MapIter {
+            inner: entries.iter(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for MapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    #[inline]
+    fn next(&mut self) -> Option<(&'a K, &'a V)> {
+        self.inner.next().map(entry_refs)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<(&'a K, &'a V)> {
+        self.inner.nth(n).map(entry_refs)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<(&'a K, &'a V)> {
+        self.inner.last().map(entry_refs)
+    }
+    // Forward internal iteration so `for_each`/`sum`-style consumers get the
+    // slice iterator's unrolled loop, not the `next()` default.
+    #[inline]
+    fn fold<B, F: FnMut(B, (&'a K, &'a V)) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.fold(init, |acc, e| f(acc, entry_refs(e)))
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for MapIter<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
+        self.inner.next_back().map(entry_refs)
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, (&'a K, &'a V)) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.rfold(init, |acc, e| f(acc, entry_refs(e)))
+    }
+}
+
+impl<K, V> ExactSizeIterator for MapIter<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for MapIter<'_, K, V> {}
 
 /// Split a borrowed entry into borrowed key/value halves — the projection under
 /// [`MapIter`].
@@ -107,7 +172,7 @@ where
         K: 'a,
         V: 'a,
     {
-        self.store.as_slice().iter().map(entry_refs)
+        MapIter::new(self.store.as_slice())
     }
 
     /// Iterate the keys in ascending order.
@@ -593,7 +658,7 @@ where
         K: 'a,
         V: 'a,
     {
-        self.store.as_slice().iter().map(entry_refs)
+        MapIter::new(self.store.as_slice())
     }
 
     /// Iterate the keys, in no particular order.
@@ -917,6 +982,30 @@ mod alloc_tests {
             SortedMap::<Vec<(i32, &str)>>::try_from_sorted_iter([(1, "a"), (1, "z"), (2, "b")])
                 .expect_err("duplicate key 1");
         assert_eq!(err.into_inner(), (1, "z"));
+    }
+
+    // `MapIter` is a real struct wrapping the slice iterator: double-ended,
+    // exact-size, fused, with forwarded internal iteration (`fold`).
+    #[test]
+    fn map_iter_is_double_ended_exact_and_fused() {
+        use alloc::string::String;
+
+        let m: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (2, "b"), (3, "c")]).unwrap();
+        let mut it = m.iter();
+        assert_eq!(it.len(), 3);
+        assert_eq!(it.next(), Some((&1, &"a")));
+        assert_eq!(it.next_back(), Some((&3, &"c")));
+        assert_eq!(it.len(), 1);
+        assert_eq!(it.next(), Some((&2, &"b")));
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next(), None); // fused
+        let joined = m.iter().fold(String::new(), |mut s, (k, v)| {
+            use core::fmt::Write;
+            write!(s, "{k}{v}").expect("writing to a String cannot fail");
+            s
+        });
+        assert_eq!(joined, "1a2b3c");
     }
 
     // The on-mission `Borrow` payoff: `String` keys, `&str` queries — no
