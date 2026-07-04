@@ -26,6 +26,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Raised the minimum supported Rust version to **1.78** — where `std`'s
-  `slice::binary_search_by` gained the cmov-based branchless bisection that the
-  sorted collections' lookups ride on.
+- Raised the minimum supported Rust version to **1.87**.

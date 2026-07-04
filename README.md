@@ -256,8 +256,7 @@ What the numbers say:
 - `arrayvec` *(default)* — the fixed-capacity `ArrayVec` backend (alloc-free).
 - `heapless` *(default)* — the fixed-capacity `heapless::Vec` backend (alloc-free).
 
-**MSRV:** Rust 1.78 (where `std`'s `slice::binary_search_by` became branchless, which
-the sorted lookups ride on).
+**MSRV:** Rust 1.87.
 
 ## `no_std`
 
