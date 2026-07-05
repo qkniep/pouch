@@ -2,15 +2,19 @@
 
 use core::fmt;
 
-/// Returned when a bounded store is at logical capacity. Hands the rejected
-/// element back (mirrors `arrayvec::CapacityError<T>` / heapless `Result<(), T>`).
+/// Returned when a bounded store is at logical capacity.
+///
+/// Hands the rejected element back (mirrors `arrayvec::CapacityError<T>` / heapless
+/// `Result<(), T>`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CapacityError<T>(pub(crate) T);
 
 impl<T> CapacityError<T> {
-    /// Wraps a rejected element. For third-party [`StoreMut`](crate::store::StoreMut)
-    /// implementations, whose `try_insert_at` must hand the value back on overflow;
-    /// everything in-crate constructs the error directly.
+    /// Wraps a rejected element.
+    ///
+    /// For third-party [`StoreMut`](crate::store::StoreMut) implementations, whose
+    /// `try_insert_at` must hand the value back on overflow; everything in-crate
+    /// constructs the error directly.
     pub fn new(value: T) -> Self {
         CapacityError(value)
     }
@@ -36,10 +40,11 @@ impl<T> fmt::Display for CapacityError<T> {
 #[cfg(feature = "std")]
 impl<T> std::error::Error for CapacityError<T> {}
 
-/// Error from a fallible *bulk* build (`try_from_iter` / `try_from_sorted_iter`
-/// on any set or map). Every arm hands the rejected element back, like
-/// [`CapacityError`]. One error type covers all the builders; not every arm is
-/// reachable from every builder:
+/// Error from a fallible *bulk* build (`try_from_iter` / `try_from_sorted_iter` on any
+/// set or map).
+///
+/// Every arm hands the rejected element back, like [`CapacityError`]. One error type
+/// covers all the builders; not every arm is reachable from every builder:
 ///
 /// * [`Capacity`](BuildError::Capacity) — any builder over a bounded store.
 /// * [`DuplicateKey`](BuildError::DuplicateKey) — **map** builders only. A duplicate

@@ -26,9 +26,10 @@ enum Kind {
     Unsorted,
 }
 
-/// A view into a single slot of a map, returned by `entry`. Resolving the lookup
-/// once, it is either [`Occupied`](Entry::Occupied) (the key is present) or
-/// [`Vacant`](Entry::Vacant) (absent, with its insertion point captured).
+/// A view into a single slot of a map, returned by `entry`.
+///
+/// Resolving the lookup once, it is either [`Occupied`](Entry::Occupied) (the key is
+/// present) or [`Vacant`](Entry::Vacant) (absent, with its insertion point captured).
 pub enum Entry<'a, S, K> {
     /// The key is present in the map.
     Occupied(OccupiedEntry<'a, S>),
@@ -186,8 +187,9 @@ where
         &mut self.store.as_mut_slice()[self.index].1
     }
 
-    /// Replaces the value, returning the old one. Consumes no capacity, so it
-    /// never fails.
+    /// Replaces the value, returning the old one.
+    ///
+    /// Consumes no capacity, so it never fails.
     pub fn insert(&mut self, value: V) -> V {
         core::mem::replace(self.get_mut(), value)
     }
@@ -197,8 +199,10 @@ where
         self.remove_entry().1
     }
 
-    /// Removes the entry, returning the key and value. Order-preserving for a
-    /// sorted map (`O(n)` shift), `O(1)` swap-remove for an unsorted one.
+    /// Removes the entry, returning the key and value.
+    ///
+    /// Order-preserving for a sorted map (`O(n)` shift), `O(1)` swap-remove for an
+    /// unsorted one.
     pub fn remove_entry(self) -> (K, V) {
         match self.kind {
             Kind::Sorted => self.store.remove_at(self.index),
