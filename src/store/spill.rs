@@ -109,10 +109,9 @@ impl<A: Store, B: Store> Spill<A, B> {
     /// # Panics
     ///
     /// In debug builds, panics if either tier is non-empty, or if the spill tier's
-    /// bound is smaller than the inline tier's capacity — a mis-sizing that would
-    /// otherwise report a `capacity()` below the inline tier's live `len()` and only
-    /// panic later, when the migration has nowhere to land. Release builds trust the
-    /// precondition unchecked.
+    /// bound is smaller than the inline tier's capacity, which would otherwise report a
+    /// `capacity()` below the inline tier's live `len()` and only panic later, when the
+    /// migration has nowhere to land. Release builds trust the precondition unchecked.
     pub fn from_tiers(inline: A, spill: B) -> Self {
         debug_assert!(
             inline.is_empty() && spill.is_empty(),
