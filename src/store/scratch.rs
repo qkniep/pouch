@@ -24,8 +24,10 @@ use crate::store::{Store, StoreMut};
 
 /// A fixed-capacity store backed by a borrowed `&'a mut [T]`.
 ///
-/// Capacity is fixed at the buffer length; it never allocates. See the module docs for
-/// the `T: Default` requirement on mutation.
+/// Capacity is fixed at the buffer length; it never allocates. Mutation requires
+/// `T: Default` (the trade `TinyVec` makes): `pouch` forbids `unsafe`, so a vacated slot
+/// can't be left uninitialized and is refilled with `T::default()` instead. The
+/// read-only [`Store`] impl carries no such bound.
 pub struct ScratchVec<'a, T> {
     buf: &'a mut [T],
     len: usize,

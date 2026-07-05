@@ -14,16 +14,18 @@ mod algebra;
 
 pub use algebra::{Difference, Intersection, SymmetricDifference, Union};
 
-/// Resolves a `RangeBounds` over a sorted slice into index bounds via `partition_point`,
-/// projecting each element to its search key with `key` (identity for sets, `.0` for
-/// maps).
+/// Resolves a `RangeBounds` over a sorted slice into the index range via
+/// `partition_point`, projecting each element to its search key with `key` (identity for
+/// sets, `.0` for maps).
 ///
-/// Shared by the sorted collections' `range` accessors.
-pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
+/// The two-column [`SortedColumnMap::range`](crate::SortedColumnMap::range) needs the raw
+/// indices to slice both columns; [`subrange`] wraps this to return the subslice
+/// directly.
+pub(crate) fn subrange_indices<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
     slice: &[T],
     range: R,
     key: impl Fn(&T) -> &Q,
-) -> &[T] {
+) -> core::ops::Range<usize> {
     let start = match range.start_bound() {
         Bound::Unbounded => 0,
         Bound::Included(q) => slice.partition_point(|e| key(e) < q),
@@ -34,9 +36,21 @@ pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
         Bound::Included(q) => slice.partition_point(|e| key(e) <= q),
         Bound::Excluded(q) => slice.partition_point(|e| key(e) < q),
     };
+    start..end
+}
+
+/// Resolves a `RangeBounds` over a sorted slice into the matching subslice.
+///
+/// Shared by the single-store sorted collections' `range` accessors (the two-column map
+/// uses [`subrange_indices`] instead).
+pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
+    slice: &[T],
+    range: R,
+    key: impl Fn(&T) -> &Q,
+) -> &[T] {
     // An inverted range (start > end) falls through to the slice indexing
     // panic, mirroring `BTreeMap::range`.
-    &slice[start..end]
+    &slice[subrange_indices(slice, range, key)]
 }
 
 /// Returns `true` if any element of `haystack` compares equal to `needle` through its
