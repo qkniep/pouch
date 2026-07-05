@@ -79,7 +79,7 @@ pub(crate) fn is_disjoint<'s, T: Ord>(mut a: &'s [T], mut b: &'s [T]) -> bool {
 
 /// Ascending iterator over the elements in `a`, `b`, or both — see
 /// [`SortedSet::union`](crate::SortedSet::union).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Union<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -87,7 +87,7 @@ pub struct Union<'a, T> {
 
 /// Ascending iterator over the elements in both `a` and `b` — see
 /// [`SortedSet::intersection`](crate::SortedSet::intersection).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Intersection<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -95,7 +95,7 @@ pub struct Intersection<'a, T> {
 
 /// Ascending iterator over the elements in `a` but not `b` — see
 /// [`SortedSet::difference`](crate::SortedSet::difference).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Difference<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -103,7 +103,7 @@ pub struct Difference<'a, T> {
 
 /// Ascending iterator over the elements in exactly one of `a`, `b` — see
 /// [`SortedSet::symmetric_difference`](crate::SortedSet::symmetric_difference).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SymmetricDifference<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -127,6 +127,42 @@ impl<'a, T> Difference<'a, T> {
 impl<'a, T> SymmetricDifference<'a, T> {
     pub(crate) fn new(a: &'a [T], b: &'a [T]) -> Self {
         SymmetricDifference { a, b }
+    }
+}
+
+// Manual `Clone` impls: a derive would bound every type parameter (`T: Clone`),
+// but these iterators hold only slice borrows and clone for *any* `T` — matching
+// `BTreeSet`'s algebra iterators, whose `Clone` is likewise unconditional.
+impl<T> Clone for Union<'_, T> {
+    fn clone(&self) -> Self {
+        Union {
+            a: self.a,
+            b: self.b,
+        }
+    }
+}
+impl<T> Clone for Intersection<'_, T> {
+    fn clone(&self) -> Self {
+        Intersection {
+            a: self.a,
+            b: self.b,
+        }
+    }
+}
+impl<T> Clone for Difference<'_, T> {
+    fn clone(&self) -> Self {
+        Difference {
+            a: self.a,
+            b: self.b,
+        }
+    }
+}
+impl<T> Clone for SymmetricDifference<'_, T> {
+    fn clone(&self) -> Self {
+        SymmetricDifference {
+            a: self.a,
+            b: self.b,
+        }
     }
 }
 

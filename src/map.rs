@@ -25,7 +25,7 @@ pub use entry::{Entry, OccupiedEntry, VacantEntry};
 // codegen as an indirect call — and a map iterated in a hot loop is exactly
 // where that shows. The struct keeps the projection a direct, inlinable call
 // and leaves room to change the representation later.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MapIter<'a, K, V> {
     inner: core::slice::Iter<'a, (K, V)>,
 }
@@ -34,6 +34,16 @@ impl<'a, K, V> MapIter<'a, K, V> {
     fn new(entries: &'a [(K, V)]) -> Self {
         MapIter {
             inner: entries.iter(),
+        }
+    }
+}
+
+// Manual `Clone`: a derive would bound `K: Clone + V: Clone`, but the underlying
+// slice iterator clones for any element type (it's just a borrow).
+impl<K, V> Clone for MapIter<'_, K, V> {
+    fn clone(&self) -> Self {
+        MapIter {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -1157,6 +1167,20 @@ mod alloc_tests {
             s
         });
         assert_eq!(joined, "1a2b3c");
+    }
+
+    #[test]
+    fn map_iter_clones_for_non_clone_entries() {
+        // A slice borrow underneath: cloning the iterator (the standard two-pass
+        // idiom) must not demand `K: Clone` / `V: Clone`.
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct NoClone(u32);
+        let m: SortedMap<Vec<(NoClone, NoClone)>> =
+            SortedMap::try_from_iter([(NoClone(1), NoClone(10)), (NoClone(2), NoClone(20))])
+                .unwrap();
+        let it = m.iter();
+        assert_eq!(it.clone().count(), 2);
+        assert!(it.eq(m.iter()));
     }
 
     // The on-mission `Borrow` payoff: `String` keys, `&str` queries — no
