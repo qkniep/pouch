@@ -675,43 +675,15 @@ where
 
 // Vec is the unbounded backend, so the `Unbounded`-gated `extend` and the
 // last-wins / strict-build distinction run here.
+// Insert/remove/capacity *semantics* (incl. the length-lock invariant) are
+// property-tested against std oracles in `tests/properties.rs`; these tests
+// cover the API surface the harness doesn't drive.
 #[cfg(all(test, feature = "alloc"))]
 mod alloc_tests {
     use alloc::vec::Vec;
 
     use crate::error::BuildError;
     use crate::{ColumnEntry, UnsortedColumnMap};
-
-    #[test]
-    fn insert_get_and_replace() {
-        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
-        assert_eq!(m.try_insert(1, "a"), Ok(None));
-        assert_eq!(m.try_insert(2, "b"), Ok(None));
-        assert_eq!(m.get(&1), Some(&"a"));
-        assert_eq!(m.get(&9), None);
-        // Replacing a key returns the old value and adds no entry.
-        assert_eq!(m.try_insert(1, "A"), Ok(Some("a")));
-        assert_eq!(m.get(&1), Some(&"A"));
-        assert_eq!(m.len(), 2);
-        // contains_key agrees with get (the vectorizable membership path).
-        assert!(m.contains_key(&1));
-        assert!(!m.contains_key(&9));
-    }
-
-    #[test]
-    fn remove_swaps_and_keeps_columns_aligned() {
-        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
-        m.try_extend([(1, "a"), (2, "b"), (3, "c")]).unwrap();
-        // Swap-remove pulls the last entry (3, "c") into slot 0 — in *both* columns.
-        assert_eq!(m.remove(&1), Some("a"));
-        assert_eq!(m.keys(), &[3, 2]);
-        assert_eq!(m.values(), &["c", "b"]);
-        // The surviving keys still resolve to their own values (columns aligned).
-        assert_eq!(m.get(&3), Some(&"c"));
-        assert_eq!(m.get(&2), Some(&"b"));
-        assert_eq!(m.get(&1), None);
-        assert_eq!(m.remove(&1), None);
-    }
 
     #[test]
     fn try_from_iter_rejects_duplicate_key() {
@@ -912,40 +884,14 @@ mod alloc_tests {
     }
 }
 
-// heapless is the alloc-free fixed-cap backend: exercises the bounded paths and
-// the capacity pre-check.
+// heapless is the alloc-free fixed-cap backend, so this runs under
+// `--no-default-features --features heapless` — the config's one bounded
+// column-map check (the semantics are property-tested at all-features).
 #[cfg(all(test, feature = "heapless"))]
 mod heapless_tests {
     use heapless::Vec;
 
     use crate::UnsortedColumnMap;
-
-    #[test]
-    fn capacity_reports_fixed_bound() {
-        let m: UnsortedColumnMap<Vec<u8, 4>, Vec<u8, 4>> = UnsortedColumnMap::new();
-        assert_eq!(m.capacity(), Some(4));
-    }
-
-    #[test]
-    fn entry_or_try_insert_respects_capacity() {
-        // Cap 2, full. A bounded column has no infallible `or_insert`;
-        // `or_try_insert` updates an occupied slot (no capacity used) but rejects
-        // a new key against the combined cap.
-        let mut m: UnsortedColumnMap<Vec<u8, 2>, Vec<u8, 2>> = UnsortedColumnMap::new();
-        m.try_extend([(1, 10), (2, 20)]).unwrap();
-
-        // Occupied update in place succeeds even at capacity.
-        *m.entry(1)
-            .or_try_insert(0)
-            .expect("update consumes no capacity") = 11;
-        assert_eq!(m.get(&1), Some(&11));
-
-        // A genuinely new key at the bound is rejected, handing back `(key, value)`;
-        // nothing is half-inserted (both columns stay length 2).
-        let err = m.entry(3).or_try_insert(30).expect_err("columns are full");
-        assert_eq!(err.into_inner(), (3, 30));
-        assert_eq!(m.len(), 2);
-    }
 
     #[test]
     fn try_insert_overflow_hands_back_the_pair() {
@@ -959,29 +905,6 @@ mod heapless_tests {
         assert_eq!(m.len(), 2);
         // A replacement at the bound still succeeds (consumes no capacity).
         assert_eq!(m.try_insert(2, 99), Ok(Some(20)));
-    }
-}
-
-// Mixed backends: the effective cap is the tighter column's bound. Needs both
-// `alloc` (the unbounded value column) and `heapless` (the bounded key column).
-#[cfg(all(test, feature = "alloc", feature = "heapless"))]
-mod hetero_tests {
-    use alloc::vec::Vec;
-
-    use heapless::Vec as HVec;
-
-    use crate::UnsortedColumnMap;
-
-    #[test]
-    fn capacity_is_min_of_the_two_columns() {
-        // Bounded keys (cap 2), unbounded values: the map is bounded at 2.
-        let mut m: UnsortedColumnMap<HVec<u8, 2>, Vec<u16>> = UnsortedColumnMap::new();
-        assert_eq!(m.capacity(), Some(2));
-        m.try_insert(1, 10).unwrap();
-        m.try_insert(2, 20).unwrap();
-        let err = m.try_insert(3, 30).expect_err("key column is full at 2");
-        assert_eq!(err.into_inner(), (3, 30));
-        assert_eq!(m.len(), 2);
     }
 }
 

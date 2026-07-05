@@ -1021,32 +1021,19 @@ where
 
 // Vec is the unbounded backend, so the `Unbounded`-gated paths (`collect`,
 // `extend`, `from_sorted_iter`) and the fallible builders run here.
+// Insert/remove/builder/algebra *semantics* are property-tested against std
+// oracles in `tests/properties.rs`; these tests cover the API surface the
+// harness doesn't drive (trait wiring, iterators, borrowed forms, guards).
 #[cfg(all(test, feature = "alloc"))]
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::{BuildError, SortedSet, UnsortedSet};
-
-    #[test]
-    fn try_from_iter_sorts_and_dedups() {
-        let set: SortedSet<Vec<i32>> = SortedSet::try_from_iter([3, 1, 2, 3, 1, 4]).unwrap();
-        assert_eq!(set.as_slice(), &[1, 2, 3, 4]);
-    }
+    use crate::{SortedSet, UnsortedSet};
 
     #[test]
     fn collect_into_sorted_set() {
         let set: SortedSet<Vec<i32>> = [5, 5, 2, 8, 2].into_iter().collect();
         assert_eq!(set.as_slice(), &[2, 5, 8]);
-    }
-
-    #[test]
-    fn from_sorted_iter_drops_adjacent_runs() {
-        let set: SortedSet<Vec<i32>> =
-            SortedSet::try_from_sorted_iter([1, 1, 2, 3, 3, 3, 5]).unwrap();
-        assert_eq!(set.as_slice(), &[1, 2, 3, 5]);
-        // infallible twin, available because Vec is Unbounded.
-        let set2 = SortedSet::<Vec<i32>>::from_sorted_iter([1, 2, 2, 4]);
-        assert_eq!(set2.as_slice(), &[1, 2, 4]);
     }
 
     #[test]
@@ -1070,20 +1057,6 @@ mod alloc_tests {
         assert_eq!(set.len(), 3);
         for x in [1, 2, 3] {
             assert!(set.contains(&x));
-        }
-    }
-
-    // Order is enforced in *every* build profile (not just debug), so this is a
-    // plain returned error, not a debug-only panic.
-    #[test]
-    fn try_from_sorted_iter_rejects_unsorted() {
-        let err = SortedSet::<Vec<i32>>::try_from_sorted_iter([1, 3, 2])
-            .expect_err("3 then 2 is descending");
-        match err {
-            BuildError::Unsorted(x) => assert_eq!(x, 2),
-            BuildError::Capacity(_) | BuildError::DuplicateKey(_) => {
-                panic!("expected an unsorted error")
-            }
         }
     }
 
@@ -1126,32 +1099,19 @@ mod alloc_tests {
         assert_eq!(empty.range::<i32, _>(..), &[] as &[i32]);
     }
 
+    // Cross-store algebra with a read-only backend: `other` only contributes a
+    // sorted slice, so a heap set can union with a static-table SliceSet. (The
+    // algebra semantics themselves are property-tested against BTreeSet.)
     #[test]
-    fn set_algebra_merges_ascending() {
+    fn set_algebra_crosses_stores_with_slice_set() {
         let a: SortedSet<Vec<u32>> = [1, 2, 3, 5].into_iter().collect();
-        let b: SortedSet<Vec<u32>> = [2, 3, 4].into_iter().collect();
-        assert!(a.union(&b).eq(&[1, 2, 3, 4, 5]));
-        assert!(a.intersection(&b).eq(&[2, 3]));
-        assert!(a.difference(&b).eq(&[1, 5]));
-        assert!(b.difference(&a).eq(&[4])); // difference is directional
-        assert!(a.symmetric_difference(&b).eq(&[1, 4, 5]));
-
-        // The iterators collect straight back into a set.
-        let u: SortedSet<Vec<u32>> = a.union(&b).copied().collect();
-        assert_eq!(u.as_slice(), &[1, 2, 3, 4, 5]);
-
-        // Cross-store: the other set only contributes a sorted slice, so a
-        // heap set can union with a read-only static-table SliceSet.
         static TABLE: [u32; 2] = [4, 6];
         let table = crate::SliceSet::from_store(&TABLE[..]);
         assert!(a.union(&table).eq(&[1, 2, 3, 4, 5, 6]));
-
-        // Empty edges.
-        let empty: SortedSet<Vec<u32>> = SortedSet::new();
-        assert!(empty.union(&a).eq(a.iter()));
-        assert_eq!(empty.intersection(&a).count(), 0);
-        assert!(empty.difference(&a).next().is_none());
-        assert!(a.symmetric_difference(&empty).eq(a.iter()));
+        assert!(a.is_disjoint(&table));
+        // The iterators collect straight back into a set.
+        let u: SortedSet<Vec<u32>> = a.union(&table).copied().collect();
+        assert_eq!(u.as_slice(), &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -1168,36 +1128,6 @@ mod alloc_tests {
         assert_eq!(a.intersection(&b).clone().count(), 1);
         assert_eq!(a.difference(&b).clone().count(), 2);
         assert_eq!(a.symmetric_difference(&b).clone().count(), 3);
-    }
-
-    #[test]
-    fn subset_superset_disjoint() {
-        let small: SortedSet<Vec<u32>> = [2, 40].into_iter().collect();
-        // 64 elements: the ≥16× size gap exercises the binary-search path.
-        let big: SortedSet<Vec<u32>> = (0..64).map(|x| x * 2).collect();
-        assert!(small.is_subset(&big));
-        assert!(big.is_superset(&small));
-        assert!(!big.is_subset(&small));
-        assert!(!small.is_disjoint(&big));
-        let odd: SortedSet<Vec<u32>> = [1, 3, 41].into_iter().collect();
-        assert!(small.is_disjoint(&odd) && odd.is_disjoint(&big));
-
-        // Similar sizes take the linear merge path.
-        let cover: SortedSet<Vec<u32>> = [2, 4, 40].into_iter().collect();
-        assert!(small.is_subset(&cover));
-        assert!(!cover.is_subset(&small)); // longer than `small`
-        let empty: SortedSet<Vec<u32>> = SortedSet::new();
-        assert!(empty.is_subset(&small) && small.is_superset(&empty));
-        assert!(empty.is_disjoint(&empty));
-
-        // The unsorted flavor gets the Eq-only scan predicates.
-        let ua: UnsortedSet<Vec<u32>> = [3, 1].into_iter().collect();
-        let ub: UnsortedSet<Vec<u32>> = [1, 2, 3].into_iter().collect();
-        assert!(ua.is_subset(&ub));
-        assert!(ub.is_superset(&ua));
-        assert!(!ua.is_disjoint(&ub));
-        let uc: UnsortedSet<Vec<u32>> = [9].into_iter().collect();
-        assert!(ua.is_disjoint(&uc));
     }
 
     // The sorted flavor derives `PartialOrd`/`Ord`/`Hash` off its canonical
@@ -1271,56 +1201,9 @@ mod alloc_tests {
     }
 
     #[test]
-    fn retain_keeps_matching_elements_in_order() {
-        let mut set: SortedSet<Vec<i32>> = (1..=6).collect();
-        set.retain(|x| x % 2 == 0);
-        assert_eq!(set.as_slice(), &[2, 4, 6]); // still sorted
-        set.retain(|_| false);
-        assert!(set.is_empty());
-
-        let mut unsorted: UnsortedSet<Vec<i32>> = (1..=6).collect();
-        unsorted.retain(|x| x % 2 == 1);
-        assert_eq!(unsorted.len(), 3);
-        assert!(unsorted.contains(&1) && unsorted.contains(&3) && unsorted.contains(&5));
-    }
-
-    #[test]
     #[should_panic(expected = "not in ascending order")]
     fn from_sorted_iter_panics_on_unsorted() {
         let _ = SortedSet::<Vec<i32>>::from_sorted_iter([1, 3, 2]);
-    }
-
-    #[test]
-    fn clear_empties_both_set_flavors() {
-        let mut sorted: SortedSet<Vec<i32>> = SortedSet::from_sorted_iter([1, 2, 3]);
-        sorted.clear();
-        assert!(sorted.is_empty());
-        assert_eq!(sorted.as_slice(), &[] as &[i32]);
-        assert!(sorted.insert(5)); // usable again after clear
-        assert_eq!(sorted.as_slice(), &[5]);
-
-        let mut unsorted: UnsortedSet<Vec<i32>> = [1, 2, 3].into_iter().collect();
-        unsorted.clear();
-        assert!(unsorted.is_empty());
-        assert!(unsorted.insert(9));
-        assert_eq!(unsorted.len(), 1);
-    }
-
-    // The monotonic-append fast path in `try_insert`: ascending inserts stay
-    // sorted, a duplicate at the max is rejected (not appended), and out-of-order
-    // inserts still land in place — observably identical to the binary-search path.
-    #[test]
-    fn sorted_try_insert_monotonic_fast_path() {
-        let mut s: SortedSet<Vec<u32>> = SortedSet::new();
-        for x in 0..100u32 {
-            assert!(s.insert(x)); // every insert hits the tail append
-        }
-        assert!(s.iter().copied().eq(0..100));
-        assert!(!s.insert(99)); // equal-to-max → duplicate, rejected
-        assert_eq!(s.len(), 100);
-        assert!(s.insert(200)); // strictly-greater → fast-path append
-        assert!(s.insert(150)); // mid-range → binary-search path
-        assert!(s.iter().copied().eq((0..100).chain([150, 200])));
     }
 
     #[test]
@@ -1362,22 +1245,14 @@ mod alloc_tests {
     }
 }
 
-// heapless is the alloc-free fixed-cap backend, so these run under
-// `--no-default-features --features heapless` and exercise the bounded paths
-// (bounded append, capacity overflow).
+// heapless is the alloc-free fixed-cap backend, so this runs under
+// `--no-default-features --features heapless` — the config's one bounded
+// collection-build check (the semantics are property-tested at all-features).
 #[cfg(all(test, feature = "heapless"))]
 mod heapless_tests {
     use heapless::Vec;
 
     use crate::SortedSet;
-
-    #[test]
-    fn try_from_iter_into_fixed_cap() {
-        // Four raw items (within cap) dedup down to three after the sort pass.
-        let set: SortedSet<Vec<u8, 4>> =
-            SortedSet::try_from_iter([3, 1, 2, 3]).expect("raw count fits the cap");
-        assert_eq!(set.as_slice(), &[1, 2, 3]);
-    }
 
     #[test]
     fn try_from_iter_overflows_before_dedup() {
@@ -1386,12 +1261,5 @@ mod heapless_tests {
         let err = SortedSet::<Vec<u8, 3>>::try_from_iter([1, 2, 3, 3, 3])
             .expect_err("raw append exceeds the bound");
         assert_eq!(err.into_inner(), 3);
-    }
-
-    #[test]
-    fn try_from_sorted_iter_dedups_within_cap() {
-        let set: SortedSet<Vec<u8, 5>> =
-            SortedSet::try_from_sorted_iter([1, 1, 2, 4, 4]).expect("fits");
-        assert_eq!(set.as_slice(), &[1, 2, 4]);
     }
 }

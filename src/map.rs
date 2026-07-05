@@ -1099,51 +1099,14 @@ where
 
 // Vec is the unbounded backend, so the `Unbounded`-gated `extend` and the
 // last-wins / strict-build distinction both run here.
+// Insert/remove/builder *semantics* are property-tested against std oracles in
+// `tests/properties.rs`; these tests cover the API surface the harness doesn't
+// drive (trait wiring, iterators, entry variants, borrowed forms, guards).
 #[cfg(all(test, feature = "alloc"))]
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::error::BuildError;
     use crate::{Entry, SortedMap, UnsortedMap};
-
-    #[test]
-    fn sorted_try_from_iter_unique_keys() {
-        let m: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        assert_eq!(m.len(), 3);
-        assert_eq!(m.get(&1), Some(&"a"));
-        assert_eq!(m.get(&2), Some(&"b"));
-        assert_eq!(m.get(&3), Some(&"c"));
-    }
-
-    #[test]
-    fn sorted_try_from_iter_rejects_duplicate_key() {
-        let err = SortedMap::<Vec<(i32, &str)>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-            .expect_err("duplicate key 1");
-        // Unstable sort means *which* of the two value strings is handed back is
-        // not promised — only that it's the clashing key. That ambiguity is
-        // exactly why construction rejects rather than picks.
-        match err {
-            BuildError::DuplicateKey(entry) => assert_eq!(entry.0, 1),
-            BuildError::Capacity(_) | BuildError::Unsorted(_) => {
-                panic!("expected a duplicate-key error")
-            }
-        }
-    }
-
-    #[test]
-    fn sorted_from_sorted_iter_rejects_dup_before_capacity() {
-        let m: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_sorted_iter([(1, "a"), (2, "b"), (5, "e")]).unwrap();
-        assert_eq!(m.get(&5), Some(&"e"));
-
-        // Sorted input detects the dup before appending, so the *second* entry is
-        // handed back deterministically.
-        let err =
-            SortedMap::<Vec<(i32, &str)>>::try_from_sorted_iter([(1, "a"), (1, "z"), (2, "b")])
-                .expect_err("duplicate key 1");
-        assert_eq!(err.into_inner(), (1, "z"));
-    }
 
     // `MapIter` is a real struct wrapping the slice iterator: double-ended,
     // exact-size, fused, with forwarded internal iteration (`fold`).
@@ -1216,73 +1179,6 @@ mod alloc_tests {
     }
 
     #[test]
-    fn maps_contains_key() {
-        let sm: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_iter([(2, "b"), (1, "a")]).unwrap();
-        assert!(sm.contains_key(&1));
-        assert!(!sm.contains_key(&3));
-
-        let mut um: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
-        um.try_insert(5, "e").unwrap();
-        assert!(um.contains_key(&5));
-        assert!(!um.contains_key(&6));
-    }
-
-    #[test]
-    fn sorted_remove_returns_value_and_keeps_order() {
-        let mut m: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        assert_eq!(m.remove(&2), Some("b"));
-        assert_eq!(m.remove(&2), None); // already gone
-        assert_eq!(m.len(), 2);
-        // Order is preserved (shift, not swap), so the slice stays ascending.
-        assert_eq!(m.get(&1), Some(&"a"));
-        assert_eq!(m.get(&3), Some(&"c"));
-    }
-
-    // The monotonic-append fast path in `try_insert` must be observably identical
-    // to the binary-search path: ascending inserts stay sorted, an equal key
-    // replaces (never appends a duplicate), and out-of-order inserts still land
-    // in place.
-    #[test]
-    fn sorted_try_insert_monotonic_fast_path() {
-        let mut m: SortedMap<Vec<(u32, u32)>> = SortedMap::new();
-        for k in 0..100u32 {
-            assert_eq!(m.insert(k, k), None); // every insert hits the tail append
-        }
-        assert!(m.keys().copied().eq(0..100)); // sorted, unique
-        assert_eq!(m.insert(99, 999), Some(99)); // equal-to-max key → replace, not append
-        assert_eq!(m.len(), 100);
-        assert_eq!(m.get(&99), Some(&999));
-        m.insert(200, 200); // strictly-greater → fast-path append
-        m.insert(150, 150); // mid-range → binary-search path
-        assert!(m.keys().copied().eq((0..100).chain([150, 200])));
-        assert_eq!(m.get(&150), Some(&150));
-    }
-
-    #[test]
-    fn sorted_as_slice_is_key_ordered() {
-        let m: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        // as_slice yields the entries sorted by key — the only iteration accessor.
-        assert_eq!(m.as_slice(), &[(1, "a"), (2, "b"), (3, "c")]);
-        let keys: Vec<i32> = m.as_slice().iter().map(|(k, _)| *k).collect();
-        assert_eq!(keys, &[1, 2, 3]);
-    }
-
-    #[test]
-    fn unsorted_as_slice_enumerates_entries() {
-        let mut m: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
-        m.try_insert(1, "a").unwrap();
-        m.try_insert(2, "b").unwrap();
-        m.try_insert(3, "c").unwrap();
-        // Insertion order is preserved until a swap-remove reshuffles it.
-        assert_eq!(m.as_slice(), &[(1, "a"), (2, "b"), (3, "c")]);
-        assert_eq!(m.remove(&1), Some("a")); // last entry swaps into slot 0
-        assert_eq!(m.as_slice(), &[(3, "c"), (2, "b")]);
-    }
-
-    #[test]
     fn extend_is_last_wins() {
         let mut m: SortedMap<Vec<(i32, &str)>> = SortedMap::new();
         m.extend([(1, "a"), (2, "b")]);
@@ -1298,22 +1194,6 @@ mod alloc_tests {
             .expect_err("duplicate key 1");
         // Detected at append, so the third entry is handed back deterministically.
         assert_eq!(err.into_inner(), (1, "z"));
-    }
-
-    // Key order is enforced in *every* build profile, returned as an error (not a
-    // debug-only panic). The check runs before the dup check, so a smaller key is
-    // Unsorted, not DuplicateKey.
-    #[test]
-    fn sorted_try_from_sorted_iter_rejects_unsorted_keys() {
-        let err =
-            SortedMap::<Vec<(i32, &str)>>::try_from_sorted_iter([(1, "a"), (3, "c"), (2, "b")])
-                .expect_err("key 2 after key 3 is descending");
-        match err {
-            BuildError::Unsorted(entry) => assert_eq!(entry, (2, "b")),
-            BuildError::Capacity(_) | BuildError::DuplicateKey(_) => {
-                panic!("expected an unsorted error")
-            }
-        }
     }
 
     #[test]
@@ -1494,23 +1374,6 @@ mod alloc_tests {
     }
 
     #[test]
-    fn clear_empties_both_map_flavors() {
-        let mut sm: SortedMap<Vec<(i32, &str)>> =
-            SortedMap::try_from_iter([(1, "a"), (2, "b")]).unwrap();
-        sm.clear();
-        assert!(sm.is_empty());
-        assert_eq!(sm.get(&1), None);
-        assert_eq!(sm.try_insert(3, "c"), Ok(None)); // usable again
-        assert_eq!(sm.as_slice(), &[(3, "c")]);
-
-        let mut um: UnsortedMap<Vec<(i32, &str)>> = UnsortedMap::new();
-        um.try_insert(1, "a").unwrap();
-        um.clear();
-        assert!(um.is_empty());
-        assert_eq!(um.get(&1), None);
-    }
-
-    #[test]
     fn clone_and_eq_for_sorted_map() {
         let a: SortedMap<Vec<(i32, &str)>> =
             SortedMap::try_from_iter([(1, "a"), (2, "b")]).unwrap();
@@ -1556,7 +1419,9 @@ mod alloc_tests {
     }
 }
 
-// heapless is the alloc-free fixed-cap backend: exercises the bounded paths.
+// heapless is the alloc-free fixed-cap backend, so this runs under
+// `--no-default-features --features heapless` — the config's one bounded
+// collection-build check (the semantics are property-tested at all-features).
 #[cfg(all(test, feature = "heapless"))]
 mod heapless_tests {
     use heapless::Vec;
@@ -1574,40 +1439,5 @@ mod heapless_tests {
                 panic!("expected a capacity error")
             }
         }
-    }
-
-    #[test]
-    fn capacity_reports_fixed_bound() {
-        // A bounded sorted map reads its own cap without reaching into the store.
-        let m: SortedMap<Vec<(u8, u8), 4>> = SortedMap::new();
-        assert_eq!(m.capacity(), Some(4));
-    }
-
-    #[test]
-    fn entry_or_try_insert_respects_capacity() {
-        // Cap 2, full. A bounded store has no infallible `or_insert`; `or_try_insert`
-        // updates an occupied slot (no capacity used) but rejects a new key.
-        let mut m: SortedMap<Vec<(u8, u8), 2>> =
-            SortedMap::try_from_sorted_iter([(1, 10), (2, 20)]).unwrap();
-
-        // Occupied update in place succeeds even at capacity.
-        *m.entry(1)
-            .or_try_insert(0)
-            .expect("update consumes no capacity") = 11;
-        assert_eq!(m.get(&1), Some(&11));
-
-        // A genuinely new key at the bound is rejected, handing back `(key, value)`.
-        let err = m.entry(3).or_try_insert(30).expect_err("store is full");
-        assert_eq!(err.into_inner(), (3, 30));
-        assert_eq!(m.len(), 2);
-    }
-
-    #[test]
-    fn from_sorted_iter_dup_beats_capacity() {
-        // Cap 2 with only one slot used: the dup is rejected as a duplicate, not
-        // as a capacity failure — a duplicate key consumes no capacity.
-        let err = SortedMap::<Vec<(u8, u8), 2>>::try_from_sorted_iter([(1, 1), (1, 2)])
-            .expect_err("duplicate key 1");
-        assert_eq!(err.into_inner(), (1, 2));
     }
 }

@@ -1,19 +1,22 @@
 //! Property-based tests: differential (model-based) checks of every collection
-//! flavor across a spread of backends, with the standard library's `BTreeMap` /
-//! `BTreeSet` / `Vec` as oracles — the same random operation sequence runs on
-//! both sides and every observable must agree after every step.
+//! flavor, with the standard library's `BTreeMap` / `BTreeSet` / `Vec` as
+//! oracles — the same random operation sequence runs on both sides and every
+//! observable must agree after every step.
 //!
 //! Three layers, mirroring the crate's axes:
 //!
 //!   * **store contract** — random `try_insert_at` / `remove_at` / `swap_remove_at` /
 //!     `reserve` sequences on every backend, checked step-by-step against a plain `Vec`
 //!     model. This is the reusable correctness argument for a backend: a new one earns
-//!     its keep by adding one `store_contract!` line here.
-//!   * **collection semantics** — random op sequences on every set/map flavor, checked
+//!     its keep by adding one line to the `store_contract!` list.
+//!   * **collection semantics** — random op sequences on each set/map flavor, checked
 //!     against `BTreeSet`/`BTreeMap`, including the bound-sensitive invariants: an insert
 //!     fails **iff** the element/key is new and the store is at capacity (duplicates and
 //!     replacements consume none), the rejected element is handed back, and the column
-//!     maps stay length-locked.
+//!     maps stay length-locked. One instantiation per *behavior class* ({unbounded,
+//!     bounded, hybrid} × {sorted, unsorted}), NOT per backend — the store contract
+//!     already proves the backends interchangeable, and the collection layer is generic
+//!     over `Store`, so re-running it per backend re-tests code that cannot vary.
 //!   * **derived surfaces** — set algebra vs `BTreeSet`'s, the bulk builders'
 //!     duplicate/capacity policies, and serde round-trips.
 //!
@@ -26,7 +29,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use arrayvec::ArrayVec;
-use pouch::store::{Store, StoreMut, StoreNew};
+use pouch::store::{StoreMut, StoreNew};
 use pouch::*;
 use proptest::prelude::*;
 use smallvec::SmallVec;
@@ -121,44 +124,31 @@ fn check_store_contract<S: StoreMut<Elem = u8>>(mut store: S, ops: &[StoreOp]) {
 }
 
 macro_rules! store_contract {
-    ($name:ident, $ctor:expr) => {
+    ($($name:ident: $ctor:expr;)*) => {$(
         proptest! {
             #[test]
             fn $name(ops in store_ops()) {
                 check_store_contract($ctor, &ops);
             }
         }
-    };
+    )*};
 }
 
-store_contract!(store_contract_vec, Vec::<u8>::new());
-store_contract!(store_contract_smallvec, SmallVec::<[u8; 4]>::new());
-store_contract!(
-    store_contract_tinyvec,
-    <TinyVec<[u8; 4]> as StoreNew>::new()
-);
-store_contract!(store_contract_arrayvec, ArrayVec::<u8, CAP>::new());
-store_contract!(
-    store_contract_heapless,
-    <heapless::Vec<u8, CAP> as StoreNew>::new()
-);
-store_contract!(
-    store_contract_capped_vec,
-    Capped::<Vec<u8>>::with_capacity(CAP)
-);
-// The effective bound is min(cap, inner bound) — exercised from both sides.
-store_contract!(
-    store_contract_capped_arrayvec_cap_wins,
-    Capped::from_store(ArrayVec::<u8, CAP>::new(), 5)
-);
-store_contract!(
-    store_contract_capped_arrayvec_inner_bound_wins,
-    Capped::from_store(ArrayVec::<u8, CAP>::new(), CAP + 4)
-);
-store_contract!(
-    store_contract_spill_arrayvec_to_vec,
-    Spill::from_tiers(ArrayVec::<u8, 4>::new(), Vec::new())
-);
+// The per-backend layer: every backend and adapter composition, one line each.
+store_contract! {
+    store_contract_vec: Vec::<u8>::new();
+    store_contract_smallvec: SmallVec::<[u8; 4]>::new();
+    store_contract_tinyvec: <TinyVec<[u8; 4]> as StoreNew>::new();
+    store_contract_arrayvec: ArrayVec::<u8, CAP>::new();
+    store_contract_heapless: <heapless::Vec<u8, CAP> as StoreNew>::new();
+    store_contract_capped_vec: Capped::<Vec<u8>>::with_capacity(CAP);
+    // The effective bound is min(cap, inner bound) — exercised from both sides.
+    store_contract_capped_arrayvec_cap_wins: Capped::from_store(ArrayVec::<u8, CAP>::new(), 5);
+    store_contract_capped_arrayvec_inner_bound_wins:
+        Capped::from_store(ArrayVec::<u8, CAP>::new(), CAP + 4);
+    store_contract_spill_arrayvec_to_vec:
+        Spill::from_tiers(ArrayVec::<u8, 4>::new(), Vec::new());
+}
 
 proptest! {
     #[test]
@@ -207,7 +197,7 @@ fn set_ops() -> impl Strategy<Value = Vec<SetOp>> {
 }
 
 macro_rules! set_matches_btreeset {
-    ($name:ident, $ctor:expr, normalize: $norm:expr) => {
+    ($($name:ident: $ctor:expr, $norm:expr;)*) => {$(
         proptest! {
             #[test]
             fn $name(ops in set_ops()) {
@@ -258,61 +248,27 @@ macro_rules! set_matches_btreeset {
                 }
             }
         }
-    };
+    )*};
 }
 
 /// Sorted flavors: the stored order itself is checked against the oracle.
 fn keep_order(_: &mut [u8]) {}
-/// Unsorted flavors: stored order is incidental; compare as multiset-free sets.
+/// Unsorted flavors: stored order is incidental; compare sorted.
 fn sort_first(elems: &mut [u8]) {
     elems.sort_unstable();
 }
 
-set_matches_btreeset!(
-    sorted_set_vec_matches_btreeset,
-    SortedSet::<Vec<u8>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_smallvec_matches_btreeset,
-    SortedSet::<SmallVec<[u8; 4]>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_tinyvec_matches_btreeset,
-    SortedSet::<TinyVec<[u8; 4]>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_arrayvec_matches_btreeset,
-    SortedSet::<ArrayVec<u8, CAP>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_heapless_matches_btreeset,
-    SortedSet::<heapless::Vec<u8, CAP>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_capped_vec_matches_btreeset,
-    SortedSet::<Capped<Vec<u8>>>::from_store(Capped::with_capacity(CAP)),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    sorted_set_spill_matches_btreeset,
-    SortedSet::<Spill<ArrayVec<u8, 4>, Vec<u8>>>::new(),
-    normalize: keep_order
-);
-set_matches_btreeset!(
-    unsorted_set_vec_matches_btreeset,
-    UnsortedSet::<Vec<u8>>::new(),
-    normalize: sort_first
-);
-set_matches_btreeset!(
-    unsorted_set_arrayvec_matches_btreeset,
-    UnsortedSet::<ArrayVec<u8, CAP>>::new(),
-    normalize: sort_first
-);
+// One representative per behavior class (see module docs) — don't grow this
+// list when adding a backend; add a `store_contract!` line instead. The
+// smallvec instance is the suite's one collection-driven crossing of a
+// hybrid's spill boundary; the unsorted flavors don't need their own.
+set_matches_btreeset! {
+    sorted_set_vec_matches_btreeset: SortedSet::<Vec<u8>>::new(), keep_order;
+    sorted_set_smallvec_matches_btreeset: SortedSet::<SmallVec<[u8; 4]>>::new(), keep_order;
+    sorted_set_arrayvec_matches_btreeset: SortedSet::<ArrayVec<u8, CAP>>::new(), keep_order;
+    unsorted_set_vec_matches_btreeset: UnsortedSet::<Vec<u8>>::new(), sort_first;
+    unsorted_set_arrayvec_matches_btreeset: UnsortedSet::<ArrayVec<u8, CAP>>::new(), sort_first;
+}
 
 // ---------------------------------------------------------------------------
 // Maps: differential op sequences against BTreeMap.
@@ -346,13 +302,16 @@ fn map_ops() -> impl Strategy<Value = Vec<MapOp>> {
 
 /// Sorted flavors keep entries in key order; check it verbatim.
 fn keep_entry_order(_: &mut [(u8, u16)]) {}
-/// Unsorted flavors: order is incidental.
+/// Unsorted flavors: order is incidental; compare sorted.
 fn sort_entries_first(entries: &mut [(u8, u16)]) {
     entries.sort_unstable();
 }
 
+// The optional trailing closure is an extra per-step invariant check (the
+// column maps assert their two stores stay length-locked — a half-inserted
+// entry would break the zip).
 macro_rules! map_matches_btreemap {
-    ($name:ident, $ctor:expr, normalize: $norm:expr, extra: $extra:expr) => {
+    ($($name:ident: $ctor:expr, $norm:expr $(, $extra:expr)?;)*) => {$(
         proptest! {
             #[test]
             fn $name(ops in map_ops()) {
@@ -360,7 +319,6 @@ macro_rules! map_matches_btreemap {
                 let cap = map.capacity();
                 let mut oracle: BTreeMap<u8, u16> = BTreeMap::new();
                 let normalize = $norm;
-                let extra = $extra;
                 for op in ops {
                     let full = cap.is_some_and(|c| oracle.len() >= c);
                     match op {
@@ -434,142 +392,47 @@ macro_rules! map_matches_btreemap {
                     normalize(&mut entries);
                     let expected: Vec<(u8, u16)> = oracle.iter().map(|(k, v)| (*k, *v)).collect();
                     assert_eq!(entries, expected);
-                    extra(&map);
+                    $(
+                        let extra = $extra;
+                        extra(&map);
+                    )?
                 }
             }
         }
-    };
+    )*};
 }
 
-fn no_extra<M>(_: &M) {}
-
-map_matches_btreemap!(
-    sorted_map_vec_matches_btreemap,
-    SortedMap::<Vec<(u8, u16)>>::new(),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    sorted_map_smallvec_matches_btreemap,
-    SortedMap::<SmallVec<[(u8, u16); 4]>>::new(),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    sorted_map_arrayvec_matches_btreemap,
-    SortedMap::<ArrayVec<(u8, u16), CAP>>::new(),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    sorted_map_heapless_matches_btreemap,
-    SortedMap::<heapless::Vec<(u8, u16), CAP>>::new(),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    sorted_map_capped_vec_matches_btreemap,
-    SortedMap::<Capped<Vec<(u8, u16)>>>::from_store(Capped::with_capacity(CAP)),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    sorted_map_spill_matches_btreemap,
-    SortedMap::<Spill<ArrayVec<(u8, u16), 4>, Vec<(u8, u16)>>>::new(),
-    normalize: keep_entry_order,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    unsorted_map_vec_matches_btreemap,
-    UnsortedMap::<Vec<(u8, u16)>>::new(),
-    normalize: sort_entries_first,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    unsorted_map_tinyvec_matches_btreemap,
-    UnsortedMap::<TinyVec<[(u8, u16); 4]>>::new(),
-    normalize: sort_entries_first,
-    extra: no_extra
-);
-map_matches_btreemap!(
-    unsorted_map_arrayvec_matches_btreemap,
-    UnsortedMap::<ArrayVec<(u8, u16), CAP>>::new(),
-    normalize: sort_entries_first,
-    extra: no_extra
-);
-
-// The column maps additionally must keep their two stores length-locked after
-// every operation — a half-inserted entry would break the zip.
-fn columns_length_locked<SK, SV>(m: &(impl ColumnLens<SK, SV> + ?Sized)) -> bool
-where
-    SK: Store,
-    SV: Store,
-{
-    m.key_count() == m.value_count()
+// Same representative policy as the sets. The column maps are not backend
+// redundancy — two-store logic and combined caps are collection code of their
+// own — so each column flavor appears in an unbounded and a bounded/mixed
+// configuration.
+map_matches_btreemap! {
+    sorted_map_vec_matches_btreemap: SortedMap::<Vec<(u8, u16)>>::new(), keep_entry_order;
+    sorted_map_arrayvec_matches_btreemap:
+        SortedMap::<ArrayVec<(u8, u16), CAP>>::new(), keep_entry_order;
+    unsorted_map_vec_matches_btreemap: UnsortedMap::<Vec<(u8, u16)>>::new(), sort_entries_first;
+    unsorted_map_arrayvec_matches_btreemap:
+        UnsortedMap::<ArrayVec<(u8, u16), CAP>>::new(), sort_entries_first;
+    unsorted_column_map_vec_matches_btreemap:
+        UnsortedColumnMap::<Vec<u8>, Vec<u16>>::new(), sort_entries_first,
+        |m: &UnsortedColumnMap<Vec<u8>, Vec<u16>>| assert_eq!(m.keys().len(), m.values().len());
+    // Mixed columns: unbounded inline keys, runtime-capped heap values — the
+    // combined cap is the min, and an at-cap insert must not half-insert.
+    unsorted_column_map_capped_values_matches_btreemap:
+        UnsortedColumnMap::from_store(SmallVec::<[u8; 4]>::new(), Capped::with_capacity(CAP)),
+        sort_entries_first,
+        |m: &UnsortedColumnMap<SmallVec<[u8; 4]>, Capped<Vec<u16>>>| {
+            assert_eq!(m.keys().len(), m.values().len());
+        };
+    sorted_column_map_vec_matches_btreemap:
+        SortedColumnMap::<Vec<u8>, Vec<u16>>::new(), keep_entry_order,
+        |m: &SortedColumnMap<Vec<u8>, Vec<u16>>| assert_eq!(m.keys().len(), m.values().len());
+    sorted_column_map_arrayvec_matches_btreemap:
+        SortedColumnMap::<ArrayVec<u8, CAP>, ArrayVec<u16, CAP>>::new(), keep_entry_order,
+        |m: &SortedColumnMap<ArrayVec<u8, CAP>, ArrayVec<u16, CAP>>| {
+            assert_eq!(m.keys().len(), m.values().len());
+        };
 }
-
-// A tiny lens so the same length-lock check reads off both column-map types.
-trait ColumnLens<SK: Store, SV: Store> {
-    fn key_count(&self) -> usize;
-    fn value_count(&self) -> usize;
-}
-
-impl<SK, SV, K, V> ColumnLens<SK, SV> for UnsortedColumnMap<SK, SV>
-where
-    SK: Store<Elem = K>,
-    SV: Store<Elem = V>,
-{
-    fn key_count(&self) -> usize {
-        self.keys().len()
-    }
-    fn value_count(&self) -> usize {
-        self.values().len()
-    }
-}
-
-impl<SK, SV, K, V> ColumnLens<SK, SV> for SortedColumnMap<SK, SV>
-where
-    SK: Store<Elem = K>,
-    SV: Store<Elem = V>,
-{
-    fn key_count(&self) -> usize {
-        self.keys().len()
-    }
-    fn value_count(&self) -> usize {
-        self.values().len()
-    }
-}
-
-map_matches_btreemap!(
-    unsorted_column_map_vec_matches_btreemap,
-    UnsortedColumnMap::<Vec<u8>, Vec<u16>>::new(),
-    normalize: sort_entries_first,
-    extra: |m: &UnsortedColumnMap<Vec<u8>, Vec<u16>>| assert!(columns_length_locked(m))
-);
-// Mixed columns: unbounded inline keys, runtime-capped heap values. The
-// combined cap is the min, and an at-cap insert must not half-insert.
-map_matches_btreemap!(
-    unsorted_column_map_capped_values_matches_btreemap,
-    UnsortedColumnMap::from_store(SmallVec::<[u8; 4]>::new(), Capped::<Vec<u16>>::with_capacity(CAP)),
-    normalize: sort_entries_first,
-    extra: |m: &UnsortedColumnMap<SmallVec<[u8; 4]>, Capped<Vec<u16>>>| {
-        assert!(columns_length_locked(m));
-    }
-);
-map_matches_btreemap!(
-    sorted_column_map_vec_matches_btreemap,
-    SortedColumnMap::<Vec<u8>, Vec<u16>>::new(),
-    normalize: keep_entry_order,
-    extra: |m: &SortedColumnMap<Vec<u8>, Vec<u16>>| assert!(columns_length_locked(m))
-);
-map_matches_btreemap!(
-    sorted_column_map_arrayvec_matches_btreemap,
-    SortedColumnMap::<ArrayVec<u8, CAP>, ArrayVec<u16, CAP>>::new(),
-    normalize: keep_entry_order,
-    extra: |m: &SortedColumnMap<ArrayVec<u8, CAP>, ArrayVec<u16, CAP>>| {
-        assert!(columns_length_locked(m));
-    }
-);
 
 // ---------------------------------------------------------------------------
 // Set algebra: the merge iterators and predicates against BTreeSet's.

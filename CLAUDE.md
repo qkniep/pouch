@@ -115,14 +115,23 @@ partial set (the default included, now that defaults are lean) cargo
 run therefore says nothing about those suites; only the all-features run
 (`just test`, CI's test job) executes them.
 
-`tests/properties.rs` is the property-based layer: differential op sequences
-checked step-by-step against std oracles (`Vec` for the store contract,
-`BTreeSet`/`BTreeMap` for the collections), plus set-algebra, bulk-builder, and
-serde-policy properties. A new backend earns its correctness argument by adding
-one `store_contract!` line (and, if it backs collections, one line per
-`set_matches_btreeset!`/`map_matches_btreemap!` flavor). On failure proptest
-writes a seed file next to the source (`tests/properties.proptest-regressions`)
-— commit it; it replays the exact case first on every future run.
+`tests/properties.rs` is the property-based layer and owns the **semantics**:
+differential op sequences checked step-by-step against std oracles (`Vec` for
+the store contract, `BTreeSet`/`BTreeMap` for the collections — insert/remove/
+capacity behavior, duplicates-consume-no-capacity, column length-lock), plus
+set-algebra, bulk-builder, and serde-policy properties. A new backend earns its
+correctness argument with one line in the `store_contract!` list; do **not**
+add per-backend collection instantiations — those are one per *behavior class*
+({unbounded, bounded, hybrid} × {sorted, unsorted}), because the collection
+layer is generic over `Store` and can't vary by backend. Example tests (the
+unit modules and `smoke.rs`) deliberately cover only what the harness doesn't
+drive — trait wiring (`Extend`/`FromIterator`, infallible `insert`/`or_insert`),
+iterators, borrowed forms, `range`, entry variants, panic-safety, debug guards —
+and each partial-feature config keeps at least one executing test module so the
+spot-check commands above stay meaningful; don't add example tests for
+capacity/duplicate semantics. On failure proptest writes a seed file next to
+the source (`tests/properties.proptest-regressions`) — commit it; it replays
+the exact case first on every future run.
 
 ## Architecture — the three orthogonal axes
 
