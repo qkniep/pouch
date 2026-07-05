@@ -37,6 +37,8 @@
 //! [`de::Error`]: serde::de::Error
 //! [`Capped`]: crate::Capped
 //! [`ScratchVec`]: crate::ScratchVec
+//! [`BuildError::Capacity`]: crate::BuildError::Capacity
+//! [`BuildError::DuplicateKey`]: crate::BuildError::DuplicateKey
 
 use core::fmt;
 use core::marker::PhantomData;
