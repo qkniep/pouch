@@ -637,55 +637,7 @@ where
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::error::BuildError;
     use crate::{ColumnEntry, SortedColumnMap};
-
-    #[test]
-    fn try_from_iter_sorts_and_rejects_duplicate_key() {
-        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
-            SortedColumnMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        assert_eq!(m.keys(), &[1, 2, 3]);
-        assert_eq!(m.get(&2), Some(&"b"));
-        // A duplicate key is caught at the search, before insertion: the second
-        // occurrence is handed back.
-        let err =
-            SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-                .expect_err("duplicate key 1");
-        match err {
-            BuildError::DuplicateKey(entry) => assert_eq!(entry, (1, "z")),
-            BuildError::Capacity(_) | BuildError::Unsorted(_) => {
-                panic!("expected a duplicate-key error")
-            }
-        }
-    }
-
-    #[test]
-    fn try_from_sorted_iter_rejects_unsorted_and_dup() {
-        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
-            SortedColumnMap::try_from_sorted_iter([(1, "a"), (2, "b"), (5, "e")]).unwrap();
-        assert_eq!(m.get(&5), Some(&"e"));
-        // A key smaller than its predecessor is Unsorted (checked before the dup test).
-        let err = SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_sorted_iter([
-            (1, "a"),
-            (3, "c"),
-            (2, "b"),
-        ])
-        .expect_err("key 2 after key 3 is descending");
-        match err {
-            BuildError::Unsorted(entry) => assert_eq!(entry, (2, "b")),
-            BuildError::Capacity(_) | BuildError::DuplicateKey(_) => {
-                panic!("expected an unsorted error")
-            }
-        }
-        // A duplicate among sorted input is rejected before the append.
-        let err2 = SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_sorted_iter([
-            (1, "a"),
-            (1, "z"),
-            (2, "b"),
-        ])
-        .expect_err("duplicate key 1");
-        assert_eq!(err2.into_inner(), (1, "z"));
-    }
 
     #[test]
     fn extend_is_last_wins() {
@@ -818,20 +770,6 @@ mod alloc_tests {
         }
         assert_eq!(m.values(), &[22, 44, 66]);
         assert_eq!(m.keys(), &[1, 2, 3]);
-    }
-
-    #[test]
-    fn retain_preserves_key_order_and_alignment() {
-        let mut m: SortedColumnMap<Vec<i32>, Vec<i32>> =
-            SortedColumnMap::try_from_iter([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
-        m.retain(|k, v| {
-            *v += 1;
-            k % 2 == 0
-        });
-        assert_eq!(m.keys(), &[2, 4]); // still sorted, columns aligned
-        assert_eq!(m.values(), &[21, 41]);
-        assert_eq!(m.get(&2), Some(&21));
-        assert_eq!(m.get(&3), None);
     }
 
     #[test]

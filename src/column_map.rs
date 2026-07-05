@@ -682,22 +682,7 @@ where
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::error::BuildError;
     use crate::{ColumnEntry, UnsortedColumnMap};
-
-    #[test]
-    fn try_from_iter_rejects_duplicate_key() {
-        let err =
-            UnsortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-                .expect_err("duplicate key 1");
-        // Detected at the scan before any push, so the third entry is handed back.
-        match err {
-            BuildError::DuplicateKey(entry) => assert_eq!(entry, (1, "z")),
-            BuildError::Capacity(_) | BuildError::Unsorted(_) => {
-                panic!("expected a duplicate-key error")
-            }
-        }
-    }
 
     #[test]
     fn extend_is_last_wins() {
@@ -843,23 +828,6 @@ mod alloc_tests {
         }
         assert_eq!(m.values(), &[22, 44, 66]);
         assert_eq!(m.keys(), &[1, 2, 3]); // keys untouched
-    }
-
-    #[test]
-    fn retain_keeps_columns_aligned() {
-        let mut m: UnsortedColumnMap<Vec<i32>, Vec<i32>> = UnsortedColumnMap::new();
-        m.try_extend([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
-        // Drop odd keys; the predicate can also mutate the survivors' values.
-        m.retain(|k, v| {
-            *v += 1;
-            k % 2 == 0
-        });
-        assert_eq!(m.keys(), &[2, 4]);
-        assert_eq!(m.values(), &[21, 41]);
-        // Survivors still resolve to their own values (columns stayed aligned).
-        assert_eq!(m.get(&2), Some(&21));
-        assert_eq!(m.get(&4), Some(&41));
-        assert_eq!(m.get(&1), None);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

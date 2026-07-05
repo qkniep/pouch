@@ -1044,14 +1044,6 @@ mod alloc_tests {
     }
 
     #[test]
-    fn try_extend_keeps_order_across_calls() {
-        let mut set: SortedSet<Vec<i32>> = SortedSet::new();
-        set.try_extend([3, 1, 2]).unwrap();
-        set.try_extend([0, 2, 5]).unwrap(); // 2 is a duplicate
-        assert_eq!(set.as_slice(), &[0, 1, 2, 3, 5]);
-    }
-
-    #[test]
     fn unsorted_collect_dedups() {
         let set: UnsortedSet<Vec<i32>> = [1, 2, 1, 3, 2].into_iter().collect();
         assert_eq!(set.len(), 3);

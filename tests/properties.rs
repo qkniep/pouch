@@ -14,9 +14,10 @@
 //!     fails **iff** the element/key is new and the store is at capacity (duplicates and
 //!     replacements consume none), the rejected element is handed back, and the column
 //!     maps stay length-locked. One instantiation per *behavior class* ({unbounded,
-//!     bounded, hybrid} × {sorted, unsorted}), NOT per backend — the store contract
-//!     already proves the backends interchangeable, and the collection layer is generic
-//!     over `Store`, so re-running it per backend re-tests code that cannot vary.
+//!     bounded} × {sorted, unsorted}, plus one suite-wide hybrid spill-crossing
+//!     instance), NOT per backend — the store contract already proves the backends
+//!     interchangeable, and the collection layer is generic over `Store`, so re-running
+//!     it per backend re-tests code that cannot vary.
 //!   * **derived surfaces** — set algebra vs `BTreeSet`'s, the bulk builders'
 //!     duplicate/capacity policies, and serde round-trips.
 //!
@@ -180,6 +181,9 @@ enum SetOp {
     Contains(u8),
     /// Keep elements with `x % (d + 1) == r % (d + 1)`.
     Retain(u8, u8),
+    /// `try_extend`: duplicates dedup silently, and the first NEW element at
+    /// the bound is handed back with the prefix KEPT.
+    TryExtend(Vec<u8>),
     Clear,
 }
 
@@ -190,6 +194,7 @@ fn set_ops() -> impl Strategy<Value = Vec<SetOp>> {
             2 => key().prop_map(SetOp::Remove),
             2 => key().prop_map(SetOp::Contains),
             1 => (0u8..4, any::<u8>()).prop_map(|(d, r)| SetOp::Retain(d, r)),
+            1 => prop::collection::vec(key(), 0..6).prop_map(SetOp::TryExtend),
             1 => Just(SetOp::Clear),
         ],
         0..64,
@@ -234,6 +239,31 @@ macro_rules! set_matches_btreeset {
                             set.retain(|x| *x % modulus == r % modulus);
                             oracle.retain(|x| *x % modulus == r % modulus);
                         }
+                        SetOp::TryExtend(batch) => match set.try_extend(batch.iter().copied()) {
+                            Ok(()) => {
+                                oracle.extend(batch.iter().copied());
+                                assert!(
+                                    cap.is_none_or(|c| oracle.len() <= c),
+                                    "try_extend overfilled a bounded store"
+                                );
+                            }
+                            Err(e) => {
+                                // Replay the batch: elements before the failure
+                                // were applied (duplicates consuming nothing);
+                                // the failure is the first NEW element at the bound.
+                                let rejected = e.into_inner();
+                                let mut expected_rejected = None;
+                                for &x in &batch {
+                                    let full = cap.is_some_and(|c| oracle.len() >= c);
+                                    if full && !oracle.contains(&x) {
+                                        expected_rejected = Some(x);
+                                        break;
+                                    }
+                                    oracle.insert(x);
+                                }
+                                assert_eq!(Some(rejected), expected_rejected);
+                            }
+                        },
                         SetOp::Clear => {
                             set.clear();
                             oracle.clear();
@@ -281,8 +311,11 @@ enum MapOp {
     Get(u8),
     /// `entry(k).and_modify(+1).or_try_insert(v)` — the one-lookup upsert.
     Entry(u8, u16),
-    /// Keep entries with `k % (d + 1) == r % (d + 1)`.
+    /// Keep entries with `k % (d + 1) == r % (d + 1)`, mutating every visited value.
     Retain(u8, u8),
+    /// `try_extend`: sequential last-wins, stopping at the first capacity
+    /// failure — the rejected entry is handed back and the prefix is KEPT.
+    TryExtend(Vec<(u8, u16)>),
     Clear,
 }
 
@@ -294,6 +327,7 @@ fn map_ops() -> impl Strategy<Value = Vec<MapOp>> {
             2 => key().prop_map(MapOp::Get),
             3 => (key(), val()).prop_map(|(k, v)| MapOp::Entry(k, v)),
             1 => (0u8..4, any::<u8>()).prop_map(|(d, r)| MapOp::Retain(d, r)),
+            1 => prop::collection::vec((key(), val()), 0..6).prop_map(MapOp::TryExtend),
             1 => Just(MapOp::Clear),
         ],
         0..64,
@@ -377,10 +411,44 @@ macro_rules! map_matches_btreemap {
                             }
                         }
                         MapOp::Retain(d, r) => {
+                            // The predicate gets `&mut V`: mutate every visited
+                            // value so in-place edits during retain are checked
+                            // against the oracle too (BTreeMap::retain matches).
                             let modulus = d + 1;
-                            map.retain(|k, _| *k % modulus == r % modulus);
-                            oracle.retain(|k, _| *k % modulus == r % modulus);
+                            map.retain(|k, v| {
+                                *v = v.wrapping_add(1);
+                                *k % modulus == r % modulus
+                            });
+                            oracle.retain(|k, v| {
+                                *v = v.wrapping_add(1);
+                                *k % modulus == r % modulus
+                            });
                         }
+                        MapOp::TryExtend(batch) => match map.try_extend(batch.iter().copied()) {
+                            Ok(()) => {
+                                oracle.extend(batch.iter().copied());
+                                assert!(
+                                    cap.is_none_or(|c| oracle.len() <= c),
+                                    "try_extend overfilled a bounded store"
+                                );
+                            }
+                            Err(e) => {
+                                // Replay the batch: entries before the failure
+                                // were applied last-wins; the failure is the
+                                // first NEW key at the bound.
+                                let rejected = e.into_inner();
+                                let mut expected_rejected = None;
+                                for &(k, v) in &batch {
+                                    let full = cap.is_some_and(|c| oracle.len() >= c);
+                                    if full && !oracle.contains_key(&k) {
+                                        expected_rejected = Some((k, v));
+                                        break;
+                                    }
+                                    oracle.insert(k, v);
+                                }
+                                assert_eq!(Some(rejected), expected_rejected);
+                            }
+                        },
                         MapOp::Clear => {
                             map.clear();
                             oracle.clear();
@@ -402,10 +470,13 @@ macro_rules! map_matches_btreemap {
     )*};
 }
 
-// Same representative policy as the sets. The column maps are not backend
-// redundancy — two-store logic and combined caps are collection code of their
-// own — so each column flavor appears in an unbounded and a bounded/mixed
-// configuration.
+// Same representative policy as the sets — including no hybrid instance: a
+// SmallVec map has capacity() == None, so it's behaviorally the Vec case; the
+// suite's one collection-driven spill crossing is the set's smallvec instance,
+// and the store contract owns the boundary itself. The column maps are not
+// backend redundancy — two-store logic and combined caps are collection code
+// of their own — so each column flavor appears in an unbounded and a
+// bounded/mixed configuration.
 map_matches_btreemap! {
     sorted_map_vec_matches_btreemap: SortedMap::<Vec<(u8, u16)>>::new(), keep_entry_order;
     sorted_map_arrayvec_matches_btreemap:
@@ -571,89 +642,136 @@ proptest! {
         assert_eq!(fast, slow);
     }
 
-    // Sets dedup, maps reject: a duplicate key is ambiguous input for a bulk
-    // map build, while the sequential ops stay last-wins.
-    #[test]
-    fn map_bulk_build_rejects_duplicate_keys(raw in prop::collection::vec((key(), val()), 0..24)) {
-        let mut keys: Vec<u8> = raw.iter().map(|(k, _)| *k).collect();
-        keys.sort_unstable();
-        let has_dup = keys.windows(2).any(|w| w[0] == w[1]);
+}
 
-        match SortedMap::<Vec<(u8, u16)>>::try_from_iter(raw.iter().copied()) {
-            Ok(m) => {
-                assert!(!has_dup);
-                let oracle: BTreeMap<u8, u16> = raw.iter().copied().collect();
-                let entries: Vec<(u8, u16)> = m.iter().map(|(k, v)| (*k, *v)).collect();
-                assert_eq!(entries, oracle.into_iter().collect::<Vec<_>>());
-            }
-            Err(BuildError::DuplicateKey((k, _))) => {
-                assert!(has_dup);
-                assert!(raw.iter().filter(|(k2, _)| *k2 == k).count() >= 2);
-            }
-            Err(e) => panic!("unexpected error: {e:?}"),
-        }
+// "Sets dedup, maps reject" — the duplicate-key policy is implemented once per
+// map flavor, with different detection mechanisms: `SortedMap` sorts then scans
+// adjacent pairs (WHICH colliding entry is handed back is unspecified — the
+// sort is unstable), while `UnsortedMap` (scan at append) and both column maps
+// (search before insert) deterministically reject the first entry whose key
+// was already seen. `exact` / `key_only` picks the assertion strength.
+macro_rules! dup_entry_matches {
+    (exact, $entry:ident, $first_dup:ident, $raw:ident) => {
+        assert_eq!(Some($entry), $first_dup);
+    };
+    (key_only, $entry:ident, $first_dup:ident, $raw:ident) => {
+        assert!($first_dup.is_some());
+        assert!($raw.iter().filter(|(k, _)| *k == $entry.0).count() >= 2);
+    };
+}
 
-        // Last-wins sequential extend accepts the same input; BTreeMap's insert
-        // is last-wins too, so it is the exact oracle.
-        let mut m = UnsortedMap::<Vec<(u8, u16)>>::new();
-        m.try_extend(raw.iter().copied()).expect("unbounded");
-        let oracle: BTreeMap<u8, u16> = raw.iter().copied().collect();
-        assert_eq!(m.len(), oracle.len());
-        for (k, v) in &oracle {
-            assert_eq!(m.get(k), Some(v));
-        }
-    }
-
-    #[test]
-    fn map_try_from_sorted_iter_polices_order_and_dups(
-        raw in prop::collection::vec((key(), val()), 0..24),
-    ) {
-        #[derive(Debug, PartialEq)]
-        enum Expect {
-            Ok,
-            Unsorted(u8),
-            Dup(u8),
-        }
-        // Unlike the set builder, every accepted entry is appended (no dedup
-        // skip), so the reference predecessor is simply the previous key.
-        let mut prev: Option<u8> = None;
-        let mut expect = Expect::Ok;
-        for &(k, _) in &raw {
-            if let Some(p) = prev {
-                if k < p {
-                    expect = Expect::Unsorted(k);
-                    break;
-                }
-                if k == p {
-                    expect = Expect::Dup(k);
-                    break;
+macro_rules! map_bulk_build_rejects_dups {
+    ($($name:ident: $ty:ty, $mode:ident;)*) => {$(
+        proptest! {
+            #[test]
+            fn $name(raw in prop::collection::vec((key(), val()), 0..24)) {
+                let mut seen = BTreeSet::new();
+                let first_dup = raw.iter().copied().find(|(k, _)| !seen.insert(*k));
+                match <$ty>::try_from_iter(raw.iter().copied()) {
+                    Ok(m) => {
+                        assert_eq!(first_dup, None);
+                        let oracle: BTreeMap<u8, u16> = raw.iter().copied().collect();
+                        let mut entries: Vec<(u8, u16)> =
+                            m.iter().map(|(k, v)| (*k, *v)).collect();
+                        entries.sort_unstable();
+                        assert_eq!(entries, oracle.into_iter().collect::<Vec<_>>());
+                    }
+                    Err(BuildError::DuplicateKey(entry)) => {
+                        dup_entry_matches!($mode, entry, first_dup, raw);
+                    }
+                    Err(e) => panic!("unexpected error: {e:?}"),
                 }
             }
-            prev = Some(k);
         }
-        match (SortedMap::<Vec<(u8, u16)>>::try_from_sorted_iter(raw.iter().copied()), expect) {
-            (Ok(m), Expect::Ok) => assert_eq!(m.len(), raw.len()),
-            (Err(BuildError::Unsorted((k, _))), Expect::Unsorted(k2)) => assert_eq!(k, k2),
-            (Err(BuildError::DuplicateKey((k, _))), Expect::Dup(k2)) => assert_eq!(k, k2),
-            (res, exp) => panic!("result {res:?} does not match expectation {exp:?}"),
-        }
-    }
+    )*};
+}
 
-    // The sorted builder detects a duplicate BEFORE the append, so at an exactly
-    // full bounded store it reports DuplicateKey — not a misleading Capacity.
-    #[test]
-    fn sorted_map_builder_detects_dup_before_append(keys in prop::collection::btree_set(key(), 4)) {
-        let keys: Vec<u8> = keys.into_iter().collect();
-        let last = *keys.last().expect("exactly 4 keys");
-        let input = keys
-            .iter()
-            .map(|&k| (k, u16::from(k)))
-            .chain([(last, 999u16)]);
-        match SortedMap::<ArrayVec<(u8, u16), 4>>::try_from_sorted_iter(input) {
-            Err(BuildError::DuplicateKey(entry)) => assert_eq!(entry, (last, 999)),
-            other => panic!("expected DuplicateKey, got {other:?}"),
+map_bulk_build_rejects_dups! {
+    sorted_map_bulk_build_rejects_dups: SortedMap<Vec<(u8, u16)>>, key_only;
+    unsorted_map_bulk_build_rejects_dups: UnsortedMap<Vec<(u8, u16)>>, exact;
+    sorted_column_map_bulk_build_rejects_dups: SortedColumnMap<Vec<u8>, Vec<u16>>, exact;
+    unsorted_column_map_bulk_build_rejects_dups: UnsortedColumnMap<Vec<u8>, Vec<u16>>, exact;
+}
+
+/// Expected outcome of an ascending build — see `sorted_builder_polices_input!`.
+#[derive(Debug, PartialEq)]
+enum Expect {
+    Ok,
+    Unsorted(u8),
+    Dup(u8),
+}
+
+// The ascending builders (separate implementations in the two sorted flavors)
+// enforce order and uniqueness BEFORE each append, deterministically handing
+// back the first offending entry: smaller-than-predecessor is Unsorted, equal
+// is DuplicateKey.
+macro_rules! sorted_builder_polices_input {
+    ($($name:ident: $ty:ty;)*) => {$(
+        proptest! {
+            #[test]
+            fn $name(raw in prop::collection::vec((key(), val()), 0..24)) {
+                // Every accepted entry is appended (no dedup skip), so the
+                // reference predecessor is simply the previous key.
+                let mut prev: Option<u8> = None;
+                let mut expect = Expect::Ok;
+                for &(k, _) in &raw {
+                    if let Some(p) = prev {
+                        if k < p {
+                            expect = Expect::Unsorted(k);
+                            break;
+                        }
+                        if k == p {
+                            expect = Expect::Dup(k);
+                            break;
+                        }
+                    }
+                    prev = Some(k);
+                }
+                match (<$ty>::try_from_sorted_iter(raw.iter().copied()), expect) {
+                    (Ok(m), Expect::Ok) => {
+                        let entries: Vec<(u8, u16)> = m.iter().map(|(k, v)| (*k, *v)).collect();
+                        assert_eq!(entries, raw);
+                    }
+                    (Err(BuildError::Unsorted((k, _))), Expect::Unsorted(k2)) => assert_eq!(k, k2),
+                    (Err(BuildError::DuplicateKey((k, _))), Expect::Dup(k2)) => assert_eq!(k, k2),
+                    (res, exp) => panic!("result {res:?} does not match expectation {exp:?}"),
+                }
+            }
         }
-    }
+    )*};
+}
+
+sorted_builder_polices_input! {
+    sorted_map_builder_polices_input: SortedMap<Vec<(u8, u16)>>;
+    sorted_column_map_builder_polices_input: SortedColumnMap<Vec<u8>, Vec<u16>>;
+}
+
+// The ascending builders detect a duplicate BEFORE the append, so at an exactly
+// full bounded store they report DuplicateKey — not a misleading Capacity.
+macro_rules! sorted_builder_detects_dup_before_append {
+    ($($name:ident: $ty:ty;)*) => {$(
+        proptest! {
+            #[test]
+            fn $name(keys in prop::collection::btree_set(key(), 4)) {
+                let keys: Vec<u8> = keys.into_iter().collect();
+                let last = *keys.last().expect("exactly 4 keys");
+                let input = keys
+                    .iter()
+                    .map(|&k| (k, u16::from(k)))
+                    .chain([(last, 999u16)]);
+                match <$ty>::try_from_sorted_iter(input) {
+                    Err(BuildError::DuplicateKey(entry)) => assert_eq!(entry, (last, 999)),
+                    other => panic!("expected DuplicateKey, got {other:?}"),
+                }
+            }
+        }
+    )*};
+}
+
+sorted_builder_detects_dup_before_append! {
+    sorted_map_builder_detects_dup_before_append: SortedMap<ArrayVec<(u8, u16), 4>>;
+    sorted_column_map_builder_detects_dup_before_append:
+        SortedColumnMap<ArrayVec<u8, 4>, ArrayVec<u16, 4>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -703,6 +821,27 @@ proptest! {
         ours.sort_unstable();
         theirs.sort_unstable();
         assert_eq!(ours, theirs);
+
+        let mut umap = UnsortedMap::<Vec<(u8, u16)>>::new();
+        umap.try_extend(raw_entries.iter().copied()).expect("unbounded");
+        let json = serde_json::to_string(&umap).expect("serialize");
+        let back: UnsortedMap<Vec<(u8, u16)>> = serde_json::from_str(&json).expect("deserialize");
+        let mut ours: Vec<(u8, u16)> = umap.iter().map(|(k, v)| (*k, *v)).collect();
+        let mut theirs: Vec<(u8, u16)> = back.iter().map(|(k, v)| (*k, *v)).collect();
+        ours.sort_unstable();
+        theirs.sort_unstable();
+        assert_eq!(ours, theirs);
+
+        let mut ucmap = UnsortedColumnMap::<Vec<u8>, Vec<u16>>::new();
+        ucmap.try_extend(raw_entries.iter().copied()).expect("unbounded");
+        let json = serde_json::to_string(&ucmap).expect("serialize");
+        let back: UnsortedColumnMap<Vec<u8>, Vec<u16>> =
+            serde_json::from_str(&json).expect("deserialize");
+        let mut ours: Vec<(u8, u16)> = ucmap.iter().map(|(k, v)| (*k, *v)).collect();
+        let mut theirs: Vec<(u8, u16)> = back.iter().map(|(k, v)| (*k, *v)).collect();
+        ours.sort_unstable();
+        theirs.sort_unstable();
+        assert_eq!(ours, theirs);
     }
 
     // A duplicate key on the wire is a data error for pouch maps — where std's
@@ -723,6 +862,7 @@ proptest! {
         assert!(serde_json::from_str::<SortedMap<Vec<(u8, u16)>>>(&json).is_err());
         assert!(serde_json::from_str::<UnsortedMap<Vec<(u8, u16)>>>(&json).is_err());
         assert!(serde_json::from_str::<SortedColumnMap<Vec<u8>, Vec<u16>>>(&json).is_err());
+        assert!(serde_json::from_str::<UnsortedColumnMap<Vec<u8>, Vec<u16>>>(&json).is_err());
         // The contrast the docs draw: std accepts the same wire bytes silently.
         assert!(serde_json::from_str::<BTreeMap<u8, u16>>(&json).is_ok());
     }

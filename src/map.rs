@@ -1189,14 +1189,6 @@ mod alloc_tests {
     }
 
     #[test]
-    fn unsorted_try_from_iter_rejects_duplicate_key() {
-        let err = UnsortedMap::<Vec<(i32, &str)>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-            .expect_err("duplicate key 1");
-        // Detected at append, so the third entry is handed back deterministically.
-        assert_eq!(err.into_inner(), (1, "z"));
-    }
-
-    #[test]
     fn entry_or_insert_inserts_then_updates_in_one_lookup() {
         // The headline use: tally occurrences with a single search per item.
         let mut counts: SortedMap<Vec<(&str, u32)>> = SortedMap::new();
@@ -1327,23 +1319,6 @@ mod alloc_tests {
             *v += *k;
         }
         assert_eq!(m.as_slice(), &[(1, 12), (2, 23)]);
-    }
-
-    #[test]
-    fn retain_filters_and_can_mutate_kept_values() {
-        let mut m: SortedMap<Vec<(i32, i32)>> =
-            SortedMap::try_from_iter([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
-        m.retain(|k, v| {
-            *v += 1; // mutate every visited value, keep even keys only
-            k % 2 == 0
-        });
-        assert_eq!(m.as_slice(), &[(2, 21), (4, 41)]); // key order preserved
-
-        let mut um: UnsortedMap<Vec<(i32, i32)>> =
-            UnsortedMap::try_from_iter([(1, 10), (2, 20), (3, 30)]).unwrap();
-        um.retain(|k, _| *k != 2);
-        assert_eq!(um.len(), 2);
-        assert!(!um.contains_key(&2));
     }
 
     #[test]

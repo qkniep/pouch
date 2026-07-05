@@ -122,8 +122,10 @@ capacity behavior, duplicates-consume-no-capacity, column length-lock), plus
 set-algebra, bulk-builder, and serde-policy properties. A new backend earns its
 correctness argument with one line in the `store_contract!` list; do **not**
 add per-backend collection instantiations — those are one per *behavior class*
-({unbounded, bounded, hybrid} × {sorted, unsorted}), because the collection
-layer is generic over `Store` and can't vary by backend. Example tests (the
+({unbounded, bounded} × {sorted, unsorted}, plus a single suite-wide hybrid
+spill-crossing instance — a hybrid reports `capacity() == None`, so it's the
+unbounded case to collection code), because the collection layer is generic
+over `Store` and can't vary by backend. Example tests (the
 unit modules and `smoke.rs`) deliberately cover only what the harness doesn't
 drive — trait wiring (`Extend`/`FromIterator`, infallible `insert`/`or_insert`),
 iterators, borrowed forms, `range`, entry variants, panic-safety, debug guards —
