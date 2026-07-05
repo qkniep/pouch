@@ -54,6 +54,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The job runs third-party build scripts via cargo; don't leave the
+          # (read-only) token in .git/config for them to read.
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           # llvm-tools provides the llvm-nm the symbol diff needs.

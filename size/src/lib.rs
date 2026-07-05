@@ -15,6 +15,7 @@ fn ph(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
+#[allow(dead_code)] // unused only in the no-feature baseline build
 const N: usize = 64;
 
 #[cfg(feature = "sorted_set")]
