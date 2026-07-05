@@ -265,6 +265,11 @@ where
     /// release). For a runtime-checked ascending build use
     /// [`try_from_sorted_iter`](Self::try_from_sorted_iter); to build from arbitrary
     /// input use [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `store` is not sorted by key or contains duplicate
+    /// keys; release builds trust the precondition unchecked.
     pub fn from_store(store: S) -> Self {
         debug_assert!(
             store.as_slice().windows(2).all(|w| w[0].0 < w[1].0),
@@ -360,6 +365,12 @@ where
 
     /// Inserts or replaces. Replacing an existing key consumes no capacity and so
     /// can never fail — only a genuinely new key at the bound errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the map
+    /// is at its logical [`capacity`](Self::capacity); replacing an existing key
+    /// never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         match self.search(&key) {
             Ok(i) => {
@@ -415,6 +426,11 @@ where
     /// dropped along with any entries it has not yet yielded. Drive
     /// [`try_insert`](Self::try_insert) yourself over an iterator you keep if the
     /// unconsumed tail must survive.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first entry that doesn't fit when a
+    /// bounded store fills; earlier entries are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -438,7 +454,10 @@ where
     /// (the second entry of the clashing pair is handed back). For last-wins
     /// override semantics use [`try_extend`](Self::try_extend) / `extend`.
     ///
-    /// Errors with [`BuildError::Capacity`] if a bounded store fills. As with the
+    /// # Errors
+    ///
+    /// Returns [`BuildError::DuplicateKey`] with the second entry of a repeated key,
+    /// or [`BuildError::Capacity`] if a bounded store fills. As with the
     /// set builder, entries are appended *before* the dedup/sort pass, so on a
     /// bounded backend a capacity overflow surfaces during the append even if the
     /// final unique map would fit.
@@ -470,6 +489,12 @@ where
     /// enforced in every build profile: a key smaller than its predecessor is
     /// returned as [`BuildError::Unsorted`] rather than silently trusted. The check
     /// is one comparison per entry — the same one the dedup already needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::Unsorted`] if a key is smaller than its predecessor,
+    /// [`BuildError::DuplicateKey`] if a key repeats, or [`BuildError::Capacity`] if
+    /// a bounded store fills — each carrying the offending entry.
     pub fn try_from_sorted_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -735,6 +760,11 @@ where
     /// removed twice. The precondition is `debug_assert!`-checked (zero cost in
     /// release). To build from arbitrary input, use
     /// [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `store` contains duplicate keys; release builds
+    /// trust the precondition unchecked.
     pub fn from_store(store: S) -> Self {
         debug_assert!(
             {
@@ -813,6 +843,12 @@ where
     /// Inserts or replaces. Replacing an existing key consumes no capacity and so
     /// can never fail — only a genuinely new key at the bound errors. O(n) lookup,
     /// O(1) to append or replace in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the map
+    /// is at its logical [`capacity`](Self::capacity); replacing an existing key
+    /// never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         if let Some(i) = self.position(&key) {
             let slot = &mut self.store.as_mut_slice()[i].1;
@@ -855,6 +891,11 @@ where
     /// dropped along with any entries it has not yet yielded. Drive
     /// [`try_insert`](Self::try_insert) yourself over an iterator you keep if the
     /// unconsumed tail must survive.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first entry that doesn't fit when a
+    /// bounded store fills; earlier entries are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -876,6 +917,11 @@ where
     /// has no faster dedup without `Ord`), and a repeated key is rejected — a map
     /// can't drop a duplicate key without arbitrarily picking a value. For
     /// last-wins override semantics use [`try_extend`](Self::try_extend) / `extend`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::DuplicateKey`] with the second entry of a repeated key,
+    /// or [`BuildError::Capacity`] if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,

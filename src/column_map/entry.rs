@@ -115,8 +115,12 @@ where
         self
     }
 
-    /// Returns the value for the key, inserting `default` if vacant. `Err` (carrying the
-    /// rejected `(key, default)`) only when the combined cap is hit.
+    /// Returns the value for the key, inserting `default` if vacant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, default)` only when the
+    /// key is absent and the columns' combined cap is hit.
     pub fn or_try_insert(self, default: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         match self {
             ColumnEntry::Occupied(e) => Ok(e.into_mut()),
@@ -126,6 +130,11 @@ where
 
     /// Like [`or_try_insert`](Self::or_try_insert) but computes the default
     /// lazily, so it runs `f` only when the key is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, f())` only when the key
+    /// is absent and the columns' combined cap is hit.
     pub fn or_try_insert_with<F: FnOnce() -> V>(
         self,
         f: F,
@@ -241,12 +250,21 @@ where
         self.key
     }
 
-    /// Inserts `value` for the key and returns a mutable reference to it. `Err`
-    /// (carrying the rejected `(key, value)`) only when the combined cap is hit.
+    /// Inserts `value` for the key and returns a mutable reference to it.
     ///
     /// The columns are length-locked, so one pre-check against the combined
     /// bound guarantees both inserts below succeed — no half-insert, no
     /// rollback (the same guard as the map's own `try_insert`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying the rejected `(key, value)` only when the
+    /// columns' combined cap is hit.
+    // The two `expect`s below assert the capacity invariant pre-checked at the top of
+    // this function, so they are unreachable — there is no user-visible panic to
+    // document. clippy can't see through the pre-check; `expect` self-clears the lint
+    // if the pattern ever changes.
+    #[expect(clippy::missing_panics_doc)]
     pub fn try_insert(self, value: V) -> Result<&'a mut V, CapacityError<(K, V)>> {
         let VacantColumnEntry {
             keys,

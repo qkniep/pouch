@@ -52,7 +52,15 @@ pub trait Store {
 /// on top of index-based insert/remove; the store itself is ordering-agnostic.
 pub trait StoreMut: Store {
     /// Inserts `value` at index `i` (shifting the tail right). `i <= len`.
-    /// Returns `Err` iff the store is at logical capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `value` if the store is at its logical
+    /// capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i > len`.
     fn try_insert_at(
         &mut self,
         i: usize,
@@ -60,6 +68,10 @@ pub trait StoreMut: Store {
     ) -> Result<(), CapacityError<Self::Elem>>;
 
     /// Removes and returns the element at index `i`. `i < len`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i >= len`.
     fn remove_at(&mut self, i: usize) -> Self::Elem;
 
     /// Removes the element at index `i` in O(1) by swapping the last element into
@@ -67,6 +79,10 @@ pub trait StoreMut: Store {
     /// collections' delete primitive — sorted ones can't use it without breaking
     /// their ordering invariant. Provided in terms of `remove_at(len - 1)`, which
     /// drops the tail and so is O(1) on every backend.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i >= len`.
     fn swap_remove_at(&mut self, i: usize) -> Self::Elem {
         debug_assert!(
             i < self.len(),

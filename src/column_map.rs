@@ -201,6 +201,11 @@ where
     /// would shadow itself. Both preconditions are `debug_assert!`-checked
     /// (zero cost in release). To build from an arbitrary iterator, use
     /// [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if the columns' lengths differ or the keys contain
+    /// duplicates; release builds trust the preconditions unchecked.
     pub fn from_store(keys: SK, values: SV) -> Self {
         debug_assert_eq!(
             keys.len(),
@@ -306,6 +311,11 @@ where
     /// column, consumes no capacity, and so can never fail — only a
     /// genuinely new key at the bound errors. O(n) lookup, O(1) to append
     /// or replace in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the
+    /// columns' combined cap is hit; replacing an existing key never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         if let Some(i) = self.position(&key) {
             let slot = &mut self.values.as_mut_slice()[i];
@@ -358,6 +368,11 @@ where
     ///
     /// On overflow only the one rejected entry is recoverable: the iterator is
     /// dropped along with any entries it has not yet yielded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first entry that doesn't fit when a
+    /// bounded store fills; earlier entries are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -381,6 +396,11 @@ where
     /// can't drop a duplicate key without arbitrarily picking a value. For
     /// last-wins override semantics use [`try_extend`](Self::try_extend) /
     /// `extend`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::DuplicateKey`] with the second entry of a repeated key,
+    /// or [`BuildError::Capacity`] if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,

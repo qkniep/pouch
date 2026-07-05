@@ -148,6 +148,12 @@ where
     /// cost in release). For a runtime-checked ascending
     /// build use [`try_from_sorted_iter`](Self::try_from_sorted_iter); to build
     /// from arbitrary input use [`try_from_iter`](Self::try_from_iter).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if the columns' lengths differ, or the keys are not
+    /// sorted or contain duplicates; release builds trust the preconditions
+    /// unchecked.
     pub fn from_store(keys: SK, values: SV) -> Self {
         debug_assert_eq!(
             keys.len(),
@@ -256,6 +262,11 @@ where
     /// never fail — only a genuinely new key at the bound errors. `O(log
     /// n)` search, `O(n)` shift to make room (or `O(1)` to replace in
     /// place).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the
+    /// columns' combined cap is hit; replacing an existing key never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         match self.search(&key) {
             Ok(i) => {
@@ -313,6 +324,11 @@ where
     ///
     /// On overflow only the one rejected entry is recoverable: the iterator is
     /// dropped along with any entries it has not yet yielded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] with the first entry that doesn't fit when a
+    /// bounded store fills; earlier entries are kept.
     pub fn try_extend<I>(&mut self, iter: I) -> Result<(), CapacityError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -346,6 +362,11 @@ where
     /// [`UnsortedColumnMap::try_from_iter`](crate::UnsortedColumnMap::try_from_iter). The
     /// upside: a duplicate key is caught *before* it is inserted, so it
     /// never consumes capacity even on a bounded store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::DuplicateKey`] with the second entry of a repeated key,
+    /// or [`BuildError::Capacity`] if a bounded store fills.
     pub fn try_from_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -372,6 +393,12 @@ where
     /// enforced in every build profile: a key smaller than its predecessor
     /// is returned as [`BuildError::Unsorted`] rather than silently
     /// trusted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::Unsorted`] if a key is smaller than its predecessor,
+    /// [`BuildError::DuplicateKey`] if a key repeats, or [`BuildError::Capacity`] if
+    /// a bounded store fills — each carrying the offending entry.
     pub fn try_from_sorted_iter<I>(iter: I) -> Result<Self, BuildError<(K, V)>>
     where
         I: IntoIterator<Item = (K, V)>,
