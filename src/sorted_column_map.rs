@@ -27,8 +27,10 @@
 //! map.
 //!
 //! Same two-store API trade as [`UnsortedColumnMap`](crate::UnsortedColumnMap): no
-//! `as_slice() -> &[(K, V)]` (enumerate via [`keys`](SortedColumnMap::keys) /
-//! [`values`](SortedColumnMap::values)),
+//! `as_slice() -> &[(K, V)]` (enumerate `(&K, &V)` via [`iter`](SortedColumnMap::iter) or
+//! `&map`, or a single column via the [`keys`](SortedColumnMap::keys) /
+//! [`values`](SortedColumnMap::values) slices), and [`range`](SortedColumnMap::range)
+//! likewise hands back two aligned subslices rather than one `&[(K, V)]`;
 //! [`from_store`](SortedColumnMap::from_store) takes two stores, and
 //! [`capacity`](SortedColumnMap::capacity) is the `min` of the two columns'
 //! bounds. Unlike `UnsortedColumnMap`'s O(1) swap-remove, the order-preserving
@@ -37,9 +39,14 @@
 //! n)` search, `O(n)` shift).
 
 use core::borrow::Borrow;
+use core::ops::RangeBounds;
 
-use crate::column_map::{combined_capacity, ColumnEntry, OccupiedColumnEntry, VacantColumnEntry};
+use crate::column_map::{
+    combined_capacity, retain_columns, ColumnEntry, ColumnIter, OccupiedColumnEntry,
+    VacantColumnEntry,
+};
 use crate::error::{BuildError, CapacityError};
+use crate::set::subrange_indices;
 use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 
 /// A map kept sorted by key, stored **column-wise**: keys in `SK` (sorted), values in
@@ -138,6 +145,76 @@ impl<SK: StoreMut, SV: StoreMut> SortedColumnMap<SK, SV> {
     }
 }
 
+// Iteration accessors, `K: Ord`-free — they only walk the columns.
+impl<K, V, SK, SV> SortedColumnMap<SK, SV>
+where
+    SK: Store<Elem = K>,
+    SV: Store<Elem = V>,
+{
+    /// Returns an iterator over the entries as `(&K, &V)` pairs, in ascending key order.
+    ///
+    /// Zips the two columns; `&map` iterates the same way. To walk a single column use
+    /// the [`keys`](Self::keys) / [`values`](Self::values) slices directly.
+    pub fn iter(&self) -> ColumnIter<'_, K, V> {
+        ColumnIter::new(self.keys.as_slice(), self.values.as_slice())
+    }
+
+    /// Returns the entry with the smallest key, or `None` if empty. `O(1)`.
+    pub fn first_key_value(&self) -> Option<(&K, &V)> {
+        Some((
+            self.keys.as_slice().first()?,
+            self.values.as_slice().first()?,
+        ))
+    }
+
+    /// Returns the entry with the largest key, or `None` if empty. `O(1)`.
+    pub fn last_key_value(&self) -> Option<(&K, &V)> {
+        Some((self.keys.as_slice().last()?, self.values.as_slice().last()?))
+    }
+}
+
+// The mutating iteration accessors need no `K: Ord` either: handing out `&mut V`
+// can't unsort the keys (only `&mut K` could, so there is no `keys_mut`).
+impl<K, V, SK, SV> SortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K>,
+    SV: StoreMut<Elem = V>,
+{
+    /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
+    /// order — bulk in-place value updates over the dense `&mut [V]` walk SoA vectorizes
+    /// best, without touching the keys.
+    pub fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.keys
+            .as_slice()
+            .iter()
+            .zip(self.values.as_mut_slice().iter_mut())
+    }
+
+    /// Returns a mutable iterator over the values, in ascending order of their keys.
+    pub fn values_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
+    where
+        V: 'a,
+    {
+        self.values.as_mut_slice().iter_mut()
+    }
+
+    /// Retains only the entries for which `f` returns `true`, preserving key order and
+    /// keeping both columns aligned. `O(n)`.
+    ///
+    /// The predicate gets `&mut V`, so it can update the entries it keeps.
+    pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, f: F) {
+        retain_columns(&mut self.keys, &mut self.values, f);
+    }
+}
+
 impl<K, V, SK, SV> SortedColumnMap<SK, SV>
 where
     SK: Store<Elem = K>,
@@ -219,6 +296,33 @@ where
         Q: Ord + ?Sized,
     {
         self.search(key).is_ok()
+    }
+
+    /// Returns the entries whose keys fall within `range`, as `(keys, values)` subslices
+    /// of the two columns — the sorted layout's native range query.
+    ///
+    /// Two `O(log n)` bound searches over the dense key column resolve one index range,
+    /// which slices both columns; zero copies, and the two returned slices stay
+    /// index-aligned. Unlike [`SortedMap::range`](crate::SortedMap::range), which returns
+    /// a single `&[(K, V)]`, the column layout hands back the two halves separately.
+    /// The bounds may be any borrowed form of `K`, like [`get`](Self::get); as with
+    /// `BTreeMap::range`, an **unsized** form (`str`, `[u8]`) needs the explicit
+    /// tuple-of-`Bound`s shape: `map.range::<str, _>((Bound::Included("a"),
+    /// Bound::Excluded("m")))`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range's start is greater than its end.
+    pub fn range<Q, R>(&self, range: R) -> (&[K], &[V])
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+        R: RangeBounds<Q>,
+    {
+        let r = subrange_indices(self.keys.as_slice(), range, |k| k.borrow());
+        // An inverted range (start > end) falls through to the slice indexing panic,
+        // mirroring `SortedMap::range` / `BTreeMap::range`.
+        (&self.keys.as_slice()[r.clone()], &self.values.as_slice()[r])
     }
 }
 
@@ -395,6 +499,10 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut map = Self::new();
+        let iter = iter.into_iter();
+        // One up-front growth per column from the size hint, so a growable backend pays a
+        // single reallocation instead of a `log n` burst (see `append_all`).
+        map.reserve(iter.size_hint().0);
         for (key, value) in iter {
             match map.search(&key) {
                 Ok(_) => return Err(BuildError::DuplicateKey((key, value))),
@@ -427,6 +535,10 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut map = Self::new();
+        let iter = iter.into_iter();
+        // One up-front growth per column from the size hint, so a growable backend pays a
+        // single reallocation instead of a `log n` burst (mirrors `SortedMap`).
+        map.reserve(iter.size_hint().0);
         for (key, value) in iter {
             if let Some(prev) = map.keys.as_slice().last() {
                 if key < *prev {
@@ -458,6 +570,38 @@ where
             Ok(prev) => prev,
             Err(_) => unreachable!("Unbounded columns reported a capacity failure"),
         }
+    }
+}
+
+impl<'a, K, V, SK, SV> IntoIterator for &'a SortedColumnMap<SK, SV>
+where
+    SK: Store<Elem = K>,
+    SV: Store<Elem = V>,
+    K: 'a,
+    V: 'a,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = ColumnIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consumes the map, yielding owned `(K, V)` entries in ascending key order.
+///
+/// Available when both backing stores are themselves consumable into their elements; zips
+/// the two owned column iterators back into pairs.
+impl<SK, SV> IntoIterator for SortedColumnMap<SK, SV>
+where
+    SK: Store + IntoIterator<Item = <SK as Store>::Elem>,
+    SV: Store + IntoIterator<Item = <SV as Store>::Elem>,
+{
+    type Item = (SK::Elem, SV::Elem);
+    type IntoIter = core::iter::Zip<SK::IntoIter, SV::IntoIter>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys.into_iter().zip(self.values)
     }
 }
 
@@ -688,6 +832,87 @@ mod alloc_tests {
         let d: SortedColumnMap<Vec<i32>, Vec<&str>> =
             SortedColumnMap::try_from_iter([(1, "a"), (2, "B")]).unwrap();
         assert_ne!(a, d);
+    }
+
+    #[test]
+    fn iter_is_key_ordered_and_first_last() {
+        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
+            SortedColumnMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
+        // `iter()` / `&map` walk entries in ascending key order.
+        let collected: Vec<(i32, &str)> = (&m).into_iter().map(|(&k, &v)| (k, v)).collect();
+        assert_eq!(collected, &[(1, "a"), (2, "b"), (3, "c")]);
+        assert_eq!(m.first_key_value(), Some((&1, &"a")));
+        assert_eq!(m.last_key_value(), Some((&3, &"c")));
+        // Owned iteration is ascending too.
+        let owned: Vec<(i32, &str)> = m.into_iter().collect();
+        assert_eq!(owned, &[(1, "a"), (2, "b"), (3, "c")]);
+
+        let empty: SortedColumnMap<Vec<i32>, Vec<&str>> = SortedColumnMap::new();
+        assert_eq!(empty.first_key_value(), None);
+        assert_eq!(empty.last_key_value(), None);
+    }
+
+    #[test]
+    fn iter_mut_and_values_mut_update_in_place() {
+        let mut m: SortedColumnMap<Vec<i32>, Vec<i32>> =
+            SortedColumnMap::try_from_iter([(3, 30), (1, 10), (2, 20)]).unwrap();
+        for (k, v) in m.iter_mut() {
+            *v += *k; // keys read-only, values mutable
+        }
+        assert_eq!(m.values(), &[11, 22, 33]); // ascending key order preserved
+        for v in m.values_mut() {
+            *v *= 2;
+        }
+        assert_eq!(m.values(), &[22, 44, 66]);
+        assert_eq!(m.keys(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn retain_preserves_key_order_and_alignment() {
+        let mut m: SortedColumnMap<Vec<i32>, Vec<i32>> =
+            SortedColumnMap::try_from_iter([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
+        m.retain(|k, v| {
+            *v += 1;
+            k % 2 == 0
+        });
+        assert_eq!(m.keys(), &[2, 4]); // still sorted, columns aligned
+        assert_eq!(m.values(), &[21, 41]);
+        assert_eq!(m.get(&2), Some(&21));
+        assert_eq!(m.get(&3), None);
+    }
+
+    #[test]
+    fn range_returns_aligned_subslices() {
+        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
+            SortedColumnMap::try_from_iter([(1, "a"), (2, "b"), (3, "c"), (4, "d")]).unwrap();
+        // Half-open range [2, 4): keys 2 and 3, values index-aligned.
+        let (ks, vs) = m.range(2..4);
+        assert_eq!(ks, &[2, 3]);
+        assert_eq!(vs, &["b", "c"]);
+        // Unbounded end.
+        let (ks, vs) = m.range(3..);
+        assert_eq!(ks, &[3, 4]);
+        assert_eq!(vs, &["c", "d"]);
+        // Empty range yields empty aligned halves.
+        let (ks, vs) = m.range(9..);
+        assert!(ks.is_empty() && vs.is_empty());
+    }
+
+    #[test]
+    fn range_takes_borrowed_unsized_bounds() {
+        use alloc::string::{String, ToString};
+        use core::ops::Bound;
+
+        let m: SortedColumnMap<Vec<String>, Vec<u32>> = SortedColumnMap::try_from_iter([
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ])
+        .unwrap();
+        // Unsized `str` bounds need the tuple-of-`Bound`s shape, like `BTreeMap::range`.
+        let (ks, vs) = m.range::<str, _>((Bound::Included("b"), Bound::Unbounded));
+        assert_eq!(ks, &["b".to_string(), "c".to_string()]);
+        assert_eq!(vs, &[2, 3]);
     }
 
     // The trust-contract guards fire only in debug builds, so gate these on it.

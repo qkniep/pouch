@@ -104,7 +104,9 @@ pub mod store;
 
 pub use bag::Bag;
 #[cfg(feature = "soa")]
-pub use column_map::{ColumnEntry, OccupiedColumnEntry, UnsortedColumnMap, VacantColumnEntry};
+pub use column_map::{
+    ColumnEntry, ColumnIter, OccupiedColumnEntry, UnsortedColumnMap, VacantColumnEntry,
+};
 pub use error::{BuildError, CapacityError};
 pub use map::{Entry, MapIter, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
 pub use set::{Difference, Intersection, SortedSet, SymmetricDifference, Union, UnsortedSet};
