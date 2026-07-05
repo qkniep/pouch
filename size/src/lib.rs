@@ -92,7 +92,7 @@ mod unsorted_map {
 #[cfg(feature = "column_map")]
 mod column_map {
     use super::*;
-    type C = pouch::ColumnMap<heapless::Vec<u32, N>, heapless::Vec<u32, N>>;
+    type C = pouch::UnsortedColumnMap<heapless::Vec<u32, N>, heapless::Vec<u32, N>>;
     #[no_mangle]
     pub extern "C" fn cm_insert(c: &mut C, k: u32, v: u32) -> u8 {
         black_box(c.try_insert(black_box(k), black_box(v)).is_ok() as u8)
@@ -191,7 +191,7 @@ mod column_map_entry {
     use pouch::ColumnEntry;
 
     use super::*;
-    type C = pouch::ColumnMap<heapless::Vec<u32, N>, heapless::Vec<u32, N>>;
+    type C = pouch::UnsortedColumnMap<heapless::Vec<u32, N>, heapless::Vec<u32, N>>;
     #[no_mangle]
     pub extern "C" fn cm_e_insert(c: &mut C, k: u32, v: u32) -> u8 {
         black_box(c.entry(black_box(k)).or_try_insert(black_box(v)).is_ok() as u8)
@@ -243,7 +243,7 @@ mod sorted_column_map_entry {
 #[cfg(feature = "arrayvec_set")]
 mod arrayvec_set {
     use super::*;
-    type C = pouch::ArraySet<u32, N>;
+    type C = pouch::SortedSet<arrayvec::ArrayVec<u32, N>>;
     #[no_mangle]
     pub extern "C" fn avs_insert(c: &mut C, v: u32) -> u8 {
         black_box(c.try_insert(black_box(v)).is_ok() as u8)
@@ -307,7 +307,7 @@ mod cmp_linear {
 #[cfg(feature = "cmp_fnv")]
 mod cmp_fnv {
     use super::*;
-    type C = heapless::FnvIndexMap<u32, u32, N>;
+    type C = heapless::index_map::FnvIndexMap<u32, u32, N>;
     #[no_mangle]
     pub extern "C" fn fnv_insert(c: &mut C, k: u32, v: u32) -> u8 {
         black_box(c.insert(black_box(k), black_box(v)).is_ok() as u8)

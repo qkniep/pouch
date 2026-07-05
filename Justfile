@@ -69,7 +69,8 @@ hack: _lockfile
     cargo hack --feature-powerset --no-dev-deps check
 
 # Marginal binary size (.text) pouch adds per collection, for an embedded target.
-# Manual tool, not part of `check` — see size/README.md. Needs llvm-tools + the
+# Not part of `check`; CI runs it only to keep it compiling (numbers aren't gated)
+# — see size/README.md. Needs llvm-tools + the
 # thumbv7em-none-eabihf target (`just setup` installs both).
 size:
     bash size/measure.sh

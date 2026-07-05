@@ -376,15 +376,15 @@ type)` combinations you actually instantiate.
 
 | collection (`heapless::Vec`, `u32`) | `.text` | + entry API |
 |---|--:|--:|
-| `SortedSet` | 300 B | — |
-| `UnsortedSet` | 312 B | — |
-| `SortedMap` | 332 B | +538 B |
-| `UnsortedMap` | 348 B | +514 B |
-| `SortedColumnMap` | 478 B | +390 B |
-| `UnsortedColumnMap` | 526 B | +534 B |
-| **all six together** | **1990 B** | |
+| `SortedSet` | 322 B | — |
+| `UnsortedSet` | 378 B | — |
+| `SortedMap` | 440 B | +344 B |
+| `UnsortedMap` | 338 B | +506 B |
+| `SortedColumnMap` | 522 B | +392 B |
+| `UnsortedColumnMap` | 514 B | +530 B |
+| **all six together** | **2244 B** | |
 
-All six together (1990 B) cost less than their independent sum (2296 B): the
+All six together (2244 B) cost less than their independent sum (2514 B): the
 per-element-type helpers (`binary_search`, panic glue) are shared, so adding more
 collection *types* of the same element type is cheap.
 
@@ -399,10 +399,9 @@ family (infallible) is `Unbounded`-gated and so unreachable on a fixed-cap
 `heapless::Vec`; on a growable backend it adds a little more.
 
 For context, same setup: a `SortedSet` hand-rolled over a raw `heapless::Vec` is
-320 B, `heapless::LinearMap` 268 B, `heapless::FnvIndexMap` 680 B. pouch's generic
-layer is zero-overhead — its `SortedSet` (300 B) matches both the hand-rolled
-version and the `ArrayVec` backend (also 300 B). Numbers are toolchain-, target-,
+324 B, `heapless::LinearMap` 262 B, `heapless::FnvIndexMap` 664 B. pouch's generic
+layer is zero-overhead — its `SortedSet` (322 B) matches the hand-rolled version
+(324 B) and the `ArrayVec` backend (332 B). Numbers are toolchain-, target-,
 and `opt-level`-dependent; treat them as ballpark and re-measure for your build.
-(Binary-size figures date from 2026-06-27, before the borrowed-key lookup and
-`reserve` work; the fixed-cap insert/lookup/remove paths they measure are
-unchanged, but re-measure if the bytes matter to you.)
+(Binary-size figures date from 2026-07-06, measured on heapless 0.9 with the
+borrowed-key-lookup and `reserve` work included.)

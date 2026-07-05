@@ -7,7 +7,8 @@
 # code that family pulled in — its `extern "C"` roots plus the monomorphizations
 # they trigger; shared `core` / `compiler_builtins` objects the staticlib bundles
 # are in both, so they cancel. Numbers are toolchain/target/opt-level dependent —
-# ballpark, not a contract (this is a manual tool, deliberately not a CI gate).
+# ballpark, not a contract: CI (no-std.yml) runs this script so the probe can't
+# bit-rot, but deliberately never gates on the byte counts themselves.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -55,10 +56,12 @@ VARIANTS=(
 echo "building ${#VARIANTS[@]} variants for $TARGET (opt-level=z, fat LTO)…" >&2
 for v in "${VARIANTS[@]}"; do
     name="${v%%:*}"; feats="${v#*:}"
-    if [ -z "$feats" ]; then
-        cargo build --release --target "$TARGET" >/dev/null 2>&1
-    else
-        cargo build --release --target "$TARGET" --no-default-features --features "$feats" >/dev/null 2>&1
+    args=(--release --target "$TARGET" --locked)
+    [ -n "$feats" ] && args+=(--no-default-features --features "$feats")
+    if ! out="$(cargo build "${args[@]}" 2>&1)"; then
+        printf '%s\n' "$out" >&2
+        echo "error: build failed for variant '$name'" >&2
+        exit 1
     fi
     ar="$(ls "target/$TARGET/release"/*.a | head -1)"
     # mangled names (unique per instantiation), decimal sizes (portable awk).
@@ -86,15 +89,15 @@ row "SortedSet"        sorted_set
 row "UnsortedSet"      unsorted_set
 row "SortedMap"        sorted_map
 row "UnsortedMap"      unsorted_map
-row "SortedColumnMap"  sorted_column_map
-row "ColumnMap"        column_map
+row "SortedColumnMap"    sorted_column_map
+row "UnsortedColumnMap"  column_map
 row "all six together" all
 echo
 echo "entry API (marginal over the same collection's insert/get/remove):"
 drow "SortedMap"        sorted_map_both        sorted_map
 drow "UnsortedMap"      unsorted_map_both      unsorted_map
-drow "SortedColumnMap"  sorted_column_map_both sorted_column_map
-drow "ColumnMap"        column_map_both        column_map
+drow "SortedColumnMap"    sorted_column_map_both sorted_column_map
+drow "UnsortedColumnMap"  column_map_both        column_map
 echo
 echo "for context (same setup):"
 row "SortedSet/arrayvec"   arrayvec_set
