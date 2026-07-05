@@ -27,11 +27,15 @@ use crate::store::{append_all, push, retain_in, Store, StoreMut, StoreNew, Unbou
 ///
 /// The crate's lightest collection — `Vec`-like over any backend, with no bound on the
 /// element type.
-// Derives `Clone` but not `PartialEq`/`Eq`: a bag's multiset equality is
-// order-independent, yet `swap_remove` lets two equal bags store their elements in
-// different orders, so a structural derive would wrongly call them unequal — the
-// same reason the unsorted set/map twins withhold it.
-#[derive(Clone, Debug)]
+// Derives order-sensitive `PartialEq`/`Eq`, like the `Vec` it faces: a bag is a
+// sequence, so equal means the same elements in the same order — two bags a
+// `swap_remove` left in different orders are different sequences, exactly as for
+// `Vec` (which pairs `swap_remove` with a structural `Eq` and nobody calls its
+// order incidental). This is *unlike* the unsorted set/map twins, which withhold
+// these: a set's identity is order-free, so its stored order is incidental and a
+// structural derive would wrongly split equal sets. A bag has no order-free
+// identity — its order is observable (`get`, `as_slice`) and therefore semantic.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bag<S> {
     store: S,
 }
@@ -382,11 +386,25 @@ mod alloc_tests {
 
     #[test]
     fn clone_is_independent() {
-        // Bag derives Clone but not PartialEq (order-sensitive multiset).
         let mut a: Bag<Vec<i32>> = [1, 2, 3].into_iter().collect();
         let b = a.clone();
         a.push(4);
         assert_eq!(b.as_slice(), &[1, 2, 3]); // clone unaffected by the later push
+    }
+
+    #[test]
+    fn eq_is_order_sensitive_like_vec() {
+        let a: Bag<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        let b: Bag<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        assert_eq!(a, b); // same elements, same order
+                          // A `swap_remove` leaves a different order, so a different sequence...
+        let mut c: Bag<Vec<i32>> = [1, 2, 3].into_iter().collect();
+        c.swap_remove(0); // -> [3, 2]
+        assert_eq!(c.as_slice(), &[3, 2]);
+        // ...equal to a bag built in that order, unequal to the same multiset
+        // in another order (a bag is a sequence, not an order-free multiset).
+        assert_eq!(c, [3, 2].into_iter().collect());
+        assert_ne!(c, [2, 3].into_iter().collect::<Bag<Vec<i32>>>());
     }
 }
 
