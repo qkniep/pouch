@@ -55,6 +55,10 @@ use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 /// The struct-of-arrays counterpart of [`SortedMap`](crate::SortedMap) — trades the
 /// `&[(K, V)]` view for a dense key column the binary search strides through without
 /// touching values (a win only for large values; see the module docs). Needs `K: Ord`.
+///
+/// Panicking key/value destructors are unsupported: the two columns are mutated in
+/// sequence, so a destructor that unwinds mid-mutation (in [`remove`](Self::remove),
+/// [`clear`](Self::clear), …) can leave them unequal length if the panic is caught.
 // The stored order is canonical (sorted by key, unique keys), so the structural
 // derives are the semantic ones, as for `SortedMap` — this map can key another
 // map or live in a `BTreeSet`. One caveat: the derived `PartialOrd`/`Ord`
@@ -410,11 +414,7 @@ where
     {
         match self.search(key) {
             Ok(i) => {
-                // Bind the removed key so it drops only after *both* columns are
-                // mutated: a panicking `K::drop` between the two would leave
-                // `keys.len() != values.len()`, breaking the length-lock invariant
-                // on a caught unwind.
-                let _key = self.keys.remove_at(i);
+                self.keys.remove_at(i);
                 Some(self.values.remove_at(i))
             }
             Err(_) => None,
@@ -1018,76 +1018,5 @@ mod hetero_tests {
         let err = m.try_insert(3, 30).expect_err("key column is full at 2");
         assert_eq!(err.into_inner(), (3, 30));
         assert_eq!(m.len(), 2);
-    }
-}
-
-// `catch_unwind` needs `std`; guards the length-lock invariant against a panicking
-// `K::drop` mid-`remove`.
-#[cfg(all(test, feature = "std"))]
-mod drop_panic_tests {
-    use std::borrow::Borrow;
-    use std::boxed::Box;
-    use std::panic::{self, AssertUnwindSafe};
-    use std::vec::Vec;
-
-    use crate::SortedColumnMap;
-
-    /// A key whose destructor panics when armed. Ordering/equality go through the `id`
-    /// alone (via `Borrow<i32>`), so lookups never touch the bomb; distinct ids mean the
-    /// `armed` tiebreak in the derived `Ord` is never consulted.
-    #[derive(PartialEq, Eq, PartialOrd, Ord)]
-    struct DropBomb {
-        id: i32,
-        armed: bool,
-    }
-
-    impl Borrow<i32> for DropBomb {
-        fn borrow(&self) -> &i32 {
-            &self.id
-        }
-    }
-
-    impl Drop for DropBomb {
-        fn drop(&mut self) {
-            assert!(!self.armed, "DropBomb::drop");
-        }
-    }
-
-    #[test]
-    fn remove_keeps_columns_aligned_when_key_drop_panics() {
-        let mut m: SortedColumnMap<Vec<DropBomb>, Vec<i32>> = SortedColumnMap::new();
-        // Only the key we remove is armed; the survivors drop cleanly at end of test.
-        m.try_insert(DropBomb { id: 1, armed: true }, 10).unwrap();
-        m.try_insert(
-            DropBomb {
-                id: 2,
-                armed: false,
-            },
-            20,
-        )
-        .unwrap();
-        m.try_insert(
-            DropBomb {
-                id: 3,
-                armed: false,
-            },
-            30,
-        )
-        .unwrap();
-
-        // Swallow the armed key's panic message, then remove it via a plain `&i32`
-        // needle (which never drop-panics).
-        let prev = panic::take_hook();
-        panic::set_hook(Box::new(|_| {}));
-        let caught = panic::catch_unwind(AssertUnwindSafe(|| m.remove(&1)));
-        panic::set_hook(prev);
-        assert!(caught.is_err(), "the armed key's Drop must panic");
-
-        // The invariant: the key drops only *after* both columns are shifted, so the
-        // unwind leaves them the same length — aligned lookups, not desync.
-        assert_eq!(m.keys().len(), m.values().len());
-        assert_eq!(m.keys().len(), 2);
-        assert_eq!(m.get(&2), Some(&20));
-        assert_eq!(m.get(&3), Some(&30));
     }
 }
