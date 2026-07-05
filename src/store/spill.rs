@@ -258,6 +258,12 @@ where
                 // one tier), so `projected` more elements is the full need.
                 self.spill.reserve(projected);
             }
+        } else {
+            // Inline tier is unbounded (e.g. `Spill<Vec, _>`): it can never
+            // overflow, so it holds the whole population and never spills.
+            // Forward the hint so a bulk build reserves once up front instead
+            // of reallocating per push.
+            self.inline.reserve(additional);
         }
     }
 }
