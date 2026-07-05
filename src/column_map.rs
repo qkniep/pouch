@@ -110,9 +110,19 @@ where
 // A named struct rather than a bare `Zip<…>` alias, so the returned type is
 // nameable and stable while the two-store representation stays private —
 // mirroring [`MapIter`](crate::MapIter) for the single-store maps.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ColumnIter<'a, K, V> {
     inner: core::iter::Zip<core::slice::Iter<'a, K>, core::slice::Iter<'a, V>>,
+}
+
+// Manual `Clone`: a derive would bound `K: Clone + V: Clone`, but the zipped
+// slice iterators clone for any element types (they're just borrows).
+impl<K, V> Clone for ColumnIter<'_, K, V> {
+    fn clone(&self) -> Self {
+        ColumnIter {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 impl<'a, K, V> ColumnIter<'a, K, V> {
@@ -825,6 +835,18 @@ mod alloc_tests {
         assert_eq!(it.next_back(), Some((&3, &"c")));
         assert_eq!(it.next(), Some((&2, &"b")));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn column_iter_clones_for_non_clone_entries() {
+        // Zipped slice borrows underneath: cloning the iterator must not demand
+        // `K: Clone` / `V: Clone` (`Eq`-only entries are first-class here).
+        #[derive(Debug, PartialEq, Eq)]
+        struct NoClone(u32);
+        let mut m: UnsortedColumnMap<Vec<NoClone>, Vec<NoClone>> = UnsortedColumnMap::new();
+        m.try_insert(NoClone(1), NoClone(10)).unwrap();
+        m.try_insert(NoClone(2), NoClone(20)).unwrap();
+        assert_eq!(m.iter().clone().count(), 2);
     }
 
     #[test]

@@ -1155,6 +1155,22 @@ mod alloc_tests {
     }
 
     #[test]
+    fn algebra_iterators_clone_for_non_clone_elements() {
+        // `Ord`-only elements are first-class; the algebra iterators hold just
+        // slice borrows, so cloning one (the standard two-pass idiom) must not
+        // demand `T: Clone` — the same unconditional `Clone` as `BTreeSet`'s.
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct NoClone(u32);
+        let a: SortedSet<Vec<NoClone>> =
+            SortedSet::from_sorted_iter([NoClone(1), NoClone(2), NoClone(3)]);
+        let b: SortedSet<Vec<NoClone>> = SortedSet::from_sorted_iter([NoClone(2), NoClone(4)]);
+        assert_eq!(a.union(&b).clone().count(), 4);
+        assert_eq!(a.intersection(&b).clone().count(), 1);
+        assert_eq!(a.difference(&b).clone().count(), 2);
+        assert_eq!(a.symmetric_difference(&b).clone().count(), 3);
+    }
+
+    #[test]
     fn subset_superset_disjoint() {
         let small: SortedSet<Vec<u32>> = [2, 40].into_iter().collect();
         // 64 elements: the ≥16× size gap exercises the binary-search path.
