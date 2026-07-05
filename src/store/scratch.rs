@@ -1,5 +1,5 @@
-//! [`ScratchVec`]: a growable store over a **borrowed** `&mut [T]` — fully
-//! allocation-free, fixed capacity = the buffer's length.
+//! [`ScratchVec`]: a fixed-capacity store over a **borrowed** `&mut [T]` — fully
+//! allocation-free, capacity = the buffer's length.
 //!
 //! Unlike `ArrayVec` / `heapless::Vec` the storage is borrowed, not owned: the
 //! caller hands over a slice (a stack array, a `static mut` region, an arena
@@ -22,7 +22,7 @@ use core::{fmt, mem};
 use crate::error::CapacityError;
 use crate::store::{Store, StoreMut};
 
-/// A growable store backed by a borrowed `&'a mut [T]`.
+/// A fixed-capacity store backed by a borrowed `&'a mut [T]`.
 ///
 /// Capacity is fixed at the buffer length; it never allocates. See the module docs for
 /// the `T: Default` requirement on mutation.
