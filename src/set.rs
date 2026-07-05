@@ -424,6 +424,20 @@ where
     /// Returns [`CapacityError`] carrying `value` if the set is at its logical
     /// [`capacity`](Self::capacity) and `value` is not already present.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
+        // Append-mostly fast path (monotonic / in-order streams): a value sorting
+        // strictly after the current max is a brand-new tail element, so `push`
+        // (a no-shift `try_insert_at(len, …)`) skips the O(log n) binary search.
+        // One compare, well-predicted in both regimes — always taken on a
+        // monotonic stream, almost never on random inserts (P(new > max) shrinks
+        // with n). An empty store takes it too (nothing to search).
+        if self
+            .store
+            .as_slice()
+            .last()
+            .is_none_or(|last| value > *last)
+        {
+            return push(&mut self.store, value).map(|()| true);
+        }
         match self.store.as_slice().binary_search(&value) {
             Ok(_) => Ok(false),
             Err(i) => self.store.try_insert_at(i, value).map(|()| true),
@@ -1260,6 +1274,23 @@ mod alloc_tests {
         assert!(unsorted.is_empty());
         assert!(unsorted.insert(9));
         assert_eq!(unsorted.len(), 1);
+    }
+
+    // The monotonic-append fast path in `try_insert`: ascending inserts stay
+    // sorted, a duplicate at the max is rejected (not appended), and out-of-order
+    // inserts still land in place — observably identical to the binary-search path.
+    #[test]
+    fn sorted_try_insert_monotonic_fast_path() {
+        let mut s: SortedSet<Vec<u32>> = SortedSet::new();
+        for x in 0..100u32 {
+            assert!(s.insert(x)); // every insert hits the tail append
+        }
+        assert!(s.iter().copied().eq(0..100));
+        assert!(!s.insert(99)); // equal-to-max → duplicate, rejected
+        assert_eq!(s.len(), 100);
+        assert!(s.insert(200)); // strictly-greater → fast-path append
+        assert!(s.insert(150)); // mid-range → binary-search path
+        assert!(s.iter().copied().eq((0..100).chain([150, 200])));
     }
 
     #[test]
