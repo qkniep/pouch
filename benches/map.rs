@@ -219,6 +219,23 @@ mod construct {
         });
     }
 
+    /// Same per-entry `try_insert` loop, but keys arrive **ascending** — every
+    /// insert is a strictly-greater-than-max tail append, so it exercises the
+    /// monotonic fast path (one compare, no binary search, no shift). The A/B
+    /// against `insert_loop` (random order) isolates the fast path's win.
+    #[divan::bench(args = SIZES)]
+    fn insert_loop_sorted(bencher: Bencher, n: usize) {
+        let k = keys(n);
+        let src = k.sorted.as_slice();
+        bencher.counter(ItemsCount::new(n)).bench(|| {
+            let mut m = SortedMap::<Vec<(u64, u64)>>::new();
+            for &x in black_box(src) {
+                let _ = m.try_insert(x, x);
+            }
+            m
+        });
+    }
+
     #[divan::bench(args = SIZES)]
     fn try_from_iter(bencher: Bencher, n: usize) {
         let k = keys(n);

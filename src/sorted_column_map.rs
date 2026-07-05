@@ -276,6 +276,15 @@ where
     /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the
     /// columns' combined cap is hit; replacing an existing key never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
+        // Append-mostly fast path — see `SortedSet::try_insert`. A key sorting
+        // strictly after the current max is a brand-new tail entry, so the O(1)
+        // `insert_entry_at(len, …)` skips the O(log n) binary search. Strict `>`
+        // (not `>=`) is load-bearing: an equal key must fall through to `search`
+        // and replace the value (a replacement consumes no capacity), never append.
+        if self.keys.as_slice().last().is_none_or(|k| key > *k) {
+            let i = self.keys.len();
+            return self.insert_entry_at(i, key, value).map(|()| None);
+        }
         match self.search(&key) {
             Ok(i) => {
                 let slot = &mut self.values.as_mut_slice()[i];
@@ -621,6 +630,27 @@ mod alloc_tests {
             ColumnEntry::Occupied(_) => panic!("the map is empty"),
         }
         assert!(m.is_empty());
+    }
+
+    // The monotonic-append fast path in `try_insert` must be observably identical
+    // to the binary-search path: ascending inserts stay sorted and aligned across
+    // both columns, an equal key replaces (never appends a duplicate), and
+    // out-of-order inserts still land in place.
+    #[test]
+    fn try_insert_monotonic_fast_path() {
+        let mut m: SortedColumnMap<Vec<u32>, Vec<u32>> = SortedColumnMap::new();
+        for k in 0..100u32 {
+            assert_eq!(m.try_insert(k, k), Ok(None)); // every insert hits the tail append
+        }
+        assert!(m.keys().iter().copied().eq(0..100)); // sorted, unique
+        assert_eq!(m.try_insert(99, 999), Ok(Some(99))); // equal-to-max key → replace, not append
+        assert_eq!(m.len(), 100);
+        assert_eq!(m.get(&99), Some(&999));
+        assert_eq!(m.try_insert(200, 200), Ok(None)); // strictly-greater → fast-path append
+        assert_eq!(m.try_insert(150, 150), Ok(None)); // mid-range → binary-search path
+        assert!(m.keys().iter().copied().eq((0..100).chain([150, 200])));
+        assert_eq!(m.get(&150), Some(&150));
+        assert_eq!(m.values().len(), m.keys().len()); // columns stay length-locked
     }
 
     #[test]

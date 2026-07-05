@@ -402,6 +402,12 @@ where
     /// is at its logical [`capacity`](Self::capacity); replacing an existing key
     /// never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
+        // Append-mostly fast path — see `SortedSet::try_insert`. Strict `>` (not
+        // `>=`) is load-bearing: an equal key must fall through to `search` and
+        // replace the value (a replacement consumes no capacity), never append.
+        if self.store.as_slice().last().is_none_or(|(k, _)| key > *k) {
+            return push(&mut self.store, (key, value)).map(|()| None);
+        }
         match self.search(&key) {
             Ok(i) => {
                 let slot = &mut self.store.as_mut_slice()[i].1;
@@ -1206,6 +1212,26 @@ mod alloc_tests {
         // Order is preserved (shift, not swap), so the slice stays ascending.
         assert_eq!(m.get(&1), Some(&"a"));
         assert_eq!(m.get(&3), Some(&"c"));
+    }
+
+    // The monotonic-append fast path in `try_insert` must be observably identical
+    // to the binary-search path: ascending inserts stay sorted, an equal key
+    // replaces (never appends a duplicate), and out-of-order inserts still land
+    // in place.
+    #[test]
+    fn sorted_try_insert_monotonic_fast_path() {
+        let mut m: SortedMap<Vec<(u32, u32)>> = SortedMap::new();
+        for k in 0..100u32 {
+            assert_eq!(m.insert(k, k), None); // every insert hits the tail append
+        }
+        assert!(m.keys().copied().eq(0..100)); // sorted, unique
+        assert_eq!(m.insert(99, 999), Some(99)); // equal-to-max key → replace, not append
+        assert_eq!(m.len(), 100);
+        assert_eq!(m.get(&99), Some(&999));
+        m.insert(200, 200); // strictly-greater → fast-path append
+        m.insert(150, 150); // mid-range → binary-search path
+        assert!(m.keys().copied().eq((0..100).chain([150, 200])));
+        assert_eq!(m.get(&150), Some(&150));
     }
 
     #[test]
