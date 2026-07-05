@@ -17,6 +17,8 @@ use crate::error::CapacityError;
 /// abort — the caller decides whether to shed, requeue, or block, with the
 /// rejected element handed back intact.
 ///
+/// # Examples
+///
 /// ```
 /// use pouch::{Bag, Capped};
 ///
