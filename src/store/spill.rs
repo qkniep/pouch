@@ -8,7 +8,7 @@
 //! always end up there); size `B` to hold at least `A`'s capacity, or the
 //! migration has nowhere to land.
 //!
-//! `Spill<ArrayVec<[T; N]>, Vec<T>>` reproduces a `SmallVec` by composition (no
+//! `Spill<ArrayVec<T, N>, Vec<T>>` reproduces a `SmallVec` by composition (no
 //! heap until spill, then unbounded), and being [`Unbounded`] through `B` it gets
 //! the collection layer's infallible `insert`. The real payoff is exotic spill
 //! tiers no crate ships — e.g. `Spill<ArrayVec<T, N>, ScratchVec<T>>` for a
@@ -23,7 +23,11 @@ use crate::error::CapacityError;
 /// Two-tier store: `inline` until it fills, then everything migrates to `spill` and stays
 /// there.
 ///
-/// See the module docs.
+/// The elements live in exactly one tier at a time — the migration moves them all at
+/// once — so the `as_slice()` contiguity contract holds and the logical capacity is
+/// `spill`'s. Size `B` to hold at least `A`'s capacity, or the migration has nowhere to
+/// land. When `B` is [`Unbounded`], so is the `Spill`, which unlocks the collection
+/// layer's infallible `insert`.
 #[derive(Clone, Debug)]
 pub struct Spill<A, B> {
     inline: A,
