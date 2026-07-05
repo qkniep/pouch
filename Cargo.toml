@@ -25,7 +25,7 @@ include = [
 ]
 
 # Build docs the way docs.rs does: all features, with `--cfg docsrs` so that
-# `#![cfg_attr(docsrs, feature(doc_auto_cfg))]` in lib.rs adds the "available on
+# `#![cfg_attr(docsrs, feature(doc_cfg))]` in lib.rs adds the "available on
 # crate feature ..." banners to feature-gated items.
 [package.metadata.docs.rs]
 all-features = true
