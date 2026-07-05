@@ -21,7 +21,7 @@ pub(crate) fn is_subset<T: Ord>(a: &[T], mut b: &[T]) -> bool {
     if a.len() > b.len() {
         return false;
     }
-    if a.len() * 16 <= b.len() {
+    if a.len().saturating_mul(16) <= b.len() {
         // `a` is much smaller: n·log m searches beat the n+m walk. Each hit
         // shrinks `b`, so later searches scan less.
         for x in a {
@@ -57,7 +57,7 @@ pub(crate) fn is_disjoint<'s, T: Ord>(mut a: &'s [T], mut b: &'s [T]) -> bool {
     if a.len() > b.len() {
         core::mem::swap(&mut a, &mut b);
     }
-    if a.len() * 16 <= b.len() {
+    if a.len().saturating_mul(16) <= b.len() {
         for x in a {
             match b.binary_search(x) {
                 Ok(_) => return false,
@@ -134,29 +134,29 @@ impl<'a, T: Ord> Iterator for Union<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
-        match (self.a.first(), self.b.first()) {
-            (Some(x), Some(y)) => match x.cmp(y) {
+        match (self.a.split_first(), self.b.split_first()) {
+            (Some((x, a_rest)), Some((y, b_rest))) => match x.cmp(y) {
                 Ordering::Less => {
-                    self.a = &self.a[1..];
+                    self.a = a_rest;
                     Some(x)
                 }
                 Ordering::Greater => {
-                    self.b = &self.b[1..];
+                    self.b = b_rest;
                     Some(y)
                 }
                 Ordering::Equal => {
                     // In both sets: yield once, advance both.
-                    self.a = &self.a[1..];
-                    self.b = &self.b[1..];
+                    self.a = a_rest;
+                    self.b = b_rest;
                     Some(x)
                 }
             },
-            (Some(x), None) => {
-                self.a = &self.a[1..];
+            (Some((x, a_rest)), None) => {
+                self.a = a_rest;
                 Some(x)
             }
-            (None, Some(y)) => {
-                self.b = &self.b[1..];
+            (None, Some((y, b_rest))) => {
+                self.b = b_rest;
                 Some(y)
             }
             (None, None) => None,
@@ -177,14 +177,14 @@ impl<'a, T: Ord> Iterator for Intersection<'a, T> {
 
     fn next(&mut self) -> Option<&'a T> {
         loop {
-            let x = self.a.first()?;
-            let y = self.b.first()?;
+            let (x, a_rest) = self.a.split_first()?;
+            let (y, b_rest) = self.b.split_first()?;
             match x.cmp(y) {
-                Ordering::Less => self.a = &self.a[1..],
-                Ordering::Greater => self.b = &self.b[1..],
+                Ordering::Less => self.a = a_rest,
+                Ordering::Greater => self.b = b_rest,
                 Ordering::Equal => {
-                    self.a = &self.a[1..];
-                    self.b = &self.b[1..];
+                    self.a = a_rest;
+                    self.b = b_rest;
                     return Some(x);
                 }
             }
@@ -201,21 +201,21 @@ impl<'a, T: Ord> Iterator for Difference<'a, T> {
 
     fn next(&mut self) -> Option<&'a T> {
         loop {
-            let x = self.a.first()?;
-            let Some(y) = self.b.first() else {
-                self.a = &self.a[1..];
+            let (x, a_rest) = self.a.split_first()?;
+            let Some((y, b_rest)) = self.b.split_first() else {
+                self.a = a_rest;
                 return Some(x);
             };
             match x.cmp(y) {
                 Ordering::Less => {
-                    self.a = &self.a[1..];
+                    self.a = a_rest;
                     return Some(x);
                 }
-                Ordering::Greater => self.b = &self.b[1..],
+                Ordering::Greater => self.b = b_rest,
                 Ordering::Equal => {
                     // In both sets: not part of the difference.
-                    self.a = &self.a[1..];
-                    self.b = &self.b[1..];
+                    self.a = a_rest;
+                    self.b = b_rest;
                 }
             }
         }
@@ -235,28 +235,28 @@ impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
 
     fn next(&mut self) -> Option<&'a T> {
         loop {
-            match (self.a.first(), self.b.first()) {
-                (Some(x), Some(y)) => match x.cmp(y) {
+            match (self.a.split_first(), self.b.split_first()) {
+                (Some((x, a_rest)), Some((y, b_rest))) => match x.cmp(y) {
                     Ordering::Less => {
-                        self.a = &self.a[1..];
+                        self.a = a_rest;
                         return Some(x);
                     }
                     Ordering::Greater => {
-                        self.b = &self.b[1..];
+                        self.b = b_rest;
                         return Some(y);
                     }
                     Ordering::Equal => {
                         // In both sets: in neither side of the symmetric diff.
-                        self.a = &self.a[1..];
-                        self.b = &self.b[1..];
+                        self.a = a_rest;
+                        self.b = b_rest;
                     }
                 },
-                (Some(x), None) => {
-                    self.a = &self.a[1..];
+                (Some((x, a_rest)), None) => {
+                    self.a = a_rest;
                     return Some(x);
                 }
-                (None, Some(y)) => {
-                    self.b = &self.b[1..];
+                (None, Some((y, b_rest))) => {
+                    self.b = b_rest;
                     return Some(y);
                 }
                 (None, None) => return None,
