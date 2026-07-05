@@ -33,6 +33,7 @@ src/serde_impls.rs    cfg(serde): Serialize/Deserialize for every collection
 src/column_map.rs     cfg(soa): UnsortedColumnMap (struct-of-arrays unsorted map — two stores; + column_map/entry.rs: ColumnEntry)
 src/sorted_column_map.rs  cfg(soa): SortedColumnMap (struct-of-arrays sorted map — two stores)
 tests/smoke.rs        integration tests
+tests/properties.rs   property-based differential tests (proptest vs BTreeMap/BTreeSet/Vec oracles)
 ```
 
 `lib.rs` re-exports everything to the crate root, so the public API is flat
@@ -106,13 +107,22 @@ cargo nextest run --lib --no-default-features --features heapless  # fixed-cap, 
 ```
 
 The `--lib` is required: it scopes the run to the in-crate unit tests, which gate
-themselves per backend with `#[cfg(feature = …)]`. `tests/smoke.rs` names every
-backend ungated, so its `[[test]]` entry in `Cargo.toml` carries
-`required-features` for the full feature set — under any partial set (the
-default included, now that defaults are lean) cargo **silently skips** the
-target rather than failing to build it. A green partial run therefore says
-nothing about the smoke suite; only the all-features run (`just test`, CI's
-test job) executes it.
+themselves per backend with `#[cfg(feature = …)]`. `tests/smoke.rs` and
+`tests/properties.rs` name every backend ungated, so their `[[test]]` entries in
+`Cargo.toml` carry `required-features` for the full feature set — under any
+partial set (the default included, now that defaults are lean) cargo
+**silently skips** the target rather than failing to build it. A green partial
+run therefore says nothing about those suites; only the all-features run
+(`just test`, CI's test job) executes them.
+
+`tests/properties.rs` is the property-based layer: differential op sequences
+checked step-by-step against std oracles (`Vec` for the store contract,
+`BTreeSet`/`BTreeMap` for the collections), plus set-algebra, bulk-builder, and
+serde-policy properties. A new backend earns its correctness argument by adding
+one `store_contract!` line (and, if it backs collections, one line per
+`set_matches_btreeset!`/`map_matches_btreemap!` flavor). On failure proptest
+writes a seed file next to the source (`tests/properties.proptest-regressions`)
+— commit it; it replays the exact case first on every future run.
 
 ## Architecture — the three orthogonal axes
 
