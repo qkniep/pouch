@@ -27,7 +27,7 @@ unchanged on `no_std` and embedded targets.
 
 > [!NOTE]
 > **Early days — the API is not yet stable.** The store traits are still
-> settling; expect breaking changes before 0.1. The collection layer, meanwhile,
+> settling; expect breaking changes between 0.x releases. The collection layer, meanwhile,
 > is filling in: bulk constructors, an `Entry` API, std-style borrowed-key
 > lookups (`map.get("k")` on a `Map<String, _>` — no allocation to ask),
 > merge-based set algebra (`union` / `is_subset` / …), `store()` / `reserve()`

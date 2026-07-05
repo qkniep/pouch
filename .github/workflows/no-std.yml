@@ -1,6 +1,7 @@
 name: no_std
 
-# Checks that the crate builds without `std` on a bare-metal target.
+# Checks that the crate builds without `std` on a bare-metal target, and that
+# the binary-size probe (`size/`) still runs.
 
 permissions:
   contents: read
@@ -41,3 +42,29 @@ jobs:
       # available on this target, but `std` is not.
       - name: Build alloc backends without std (smallvec, tinyvec)
         run: cargo build --no-default-features --features alloc,smallvec,tinyvec --target thumbv7em-none-eabihf --locked
+
+  # Drift guard for the binary-size probe: `size/` is a standalone crate that
+  # names the public API directly (it once rotted silently on a type rename +
+  # a heapless major bump, masked by its own stale lockfile). Pass/fail is
+  # "the script builds every variant and completes"; the byte counts it prints
+  # are informational only — size is probe-defined and toolchain-volatile, so
+  # a numeric threshold would flap (see size/README.md).
+  size-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The job runs third-party build scripts via cargo; don't leave the
+          # (read-only) token in .git/config for them to read.
+          persist-credentials: false
+      - uses: ./.github/actions/rust-setup
+        with:
+          # llvm-tools provides the llvm-nm the symbol diff needs.
+          components: llvm-tools
+          targets: thumbv7em-none-eabihf
+          # `size/` is its own workspace root; cache its target dir, not the repo's.
+          workspaces: size
+
+      - name: Run the binary-size probe
+        run: bash size/measure.sh

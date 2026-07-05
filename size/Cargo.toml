@@ -16,8 +16,10 @@ publish = false
 crate-type = ["staticlib"]
 
 [dependencies]
-pouch = { path = "..", default-features = false, features = ["heapless", "arrayvec"] }
-heapless = { version = "0.8", default-features = false }
+pouch = { path = "..", default-features = false, features = ["heapless", "arrayvec", "soa"] }
+# Must track the versions pouch implements `Store` for (see the root Cargo.toml).
+heapless = { version = "0.9", default-features = false }
+arrayvec = { version = "0.7", default-features = false }
 
 [features]
 default = []
