@@ -630,92 +630,14 @@ where
 
 // Vec is the unbounded backend, so the `Unbounded`-gated `extend` and the
 // last-wins / strict-build distinction run here.
+// Insert/remove/capacity *semantics* (incl. key order and the length-lock
+// invariant) are property-tested against std oracles in `tests/properties.rs`;
+// these tests cover the API surface the harness doesn't drive.
 #[cfg(all(test, feature = "alloc"))]
 mod alloc_tests {
     use alloc::vec::Vec;
 
-    use crate::error::BuildError;
     use crate::{ColumnEntry, SortedColumnMap};
-
-    #[test]
-    fn insert_keeps_order_get_and_replace() {
-        let mut m: SortedColumnMap<Vec<i32>, Vec<&str>> = SortedColumnMap::new();
-        assert_eq!(m.try_insert(2, "b"), Ok(None));
-        assert_eq!(m.try_insert(1, "a"), Ok(None));
-        // Inserts shift to keep the key column sorted (not appended like UnsortedColumnMap).
-        assert_eq!(m.keys(), &[1, 2]);
-        assert_eq!(m.values(), &["a", "b"]);
-        assert_eq!(m.get(&1), Some(&"a"));
-        assert_eq!(m.get(&9), None);
-        // Replacing a key returns the old value and adds no entry.
-        assert_eq!(m.try_insert(1, "A"), Ok(Some("a")));
-        assert_eq!(m.get(&1), Some(&"A"));
-        assert_eq!(m.len(), 2);
-        assert!(m.contains_key(&1));
-        assert!(!m.contains_key(&9));
-    }
-
-    #[test]
-    fn remove_shifts_and_keeps_columns_aligned() {
-        let mut m: SortedColumnMap<Vec<i32>, Vec<&str>> = SortedColumnMap::new();
-        m.try_extend([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        assert_eq!(m.keys(), &[1, 2, 3]); // sorted regardless of insertion order
-        assert_eq!(m.values(), &["a", "b", "c"]);
-        // Order-preserving shift (not swap) in BOTH columns.
-        assert_eq!(m.remove(&1), Some("a"));
-        assert_eq!(m.keys(), &[2, 3]);
-        assert_eq!(m.values(), &["b", "c"]);
-        assert_eq!(m.get(&3), Some(&"c"));
-        assert_eq!(m.get(&1), None);
-        assert_eq!(m.remove(&1), None);
-    }
-
-    #[test]
-    fn try_from_iter_sorts_and_rejects_duplicate_key() {
-        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
-            SortedColumnMap::try_from_iter([(3, "c"), (1, "a"), (2, "b")]).unwrap();
-        assert_eq!(m.keys(), &[1, 2, 3]);
-        assert_eq!(m.get(&2), Some(&"b"));
-        // A duplicate key is caught at the search, before insertion: the second
-        // occurrence is handed back.
-        let err =
-            SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_iter([(1, "a"), (2, "b"), (1, "z")])
-                .expect_err("duplicate key 1");
-        match err {
-            BuildError::DuplicateKey(entry) => assert_eq!(entry, (1, "z")),
-            BuildError::Capacity(_) | BuildError::Unsorted(_) => {
-                panic!("expected a duplicate-key error")
-            }
-        }
-    }
-
-    #[test]
-    fn try_from_sorted_iter_rejects_unsorted_and_dup() {
-        let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
-            SortedColumnMap::try_from_sorted_iter([(1, "a"), (2, "b"), (5, "e")]).unwrap();
-        assert_eq!(m.get(&5), Some(&"e"));
-        // A key smaller than its predecessor is Unsorted (checked before the dup test).
-        let err = SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_sorted_iter([
-            (1, "a"),
-            (3, "c"),
-            (2, "b"),
-        ])
-        .expect_err("key 2 after key 3 is descending");
-        match err {
-            BuildError::Unsorted(entry) => assert_eq!(entry, (2, "b")),
-            BuildError::Capacity(_) | BuildError::DuplicateKey(_) => {
-                panic!("expected an unsorted error")
-            }
-        }
-        // A duplicate among sorted input is rejected before the append.
-        let err2 = SortedColumnMap::<Vec<i32>, Vec<&str>>::try_from_sorted_iter([
-            (1, "a"),
-            (1, "z"),
-            (2, "b"),
-        ])
-        .expect_err("duplicate key 1");
-        assert_eq!(err2.into_inner(), (1, "z"));
-    }
 
     #[test]
     fn extend_is_last_wins() {
@@ -782,27 +704,6 @@ mod alloc_tests {
             ColumnEntry::Occupied(_) => panic!("the map is empty"),
         }
         assert!(m.is_empty());
-    }
-
-    // The monotonic-append fast path in `try_insert` must be observably identical
-    // to the binary-search path: ascending inserts stay sorted and aligned across
-    // both columns, an equal key replaces (never appends a duplicate), and
-    // out-of-order inserts still land in place.
-    #[test]
-    fn try_insert_monotonic_fast_path() {
-        let mut m: SortedColumnMap<Vec<u32>, Vec<u32>> = SortedColumnMap::new();
-        for k in 0..100u32 {
-            assert_eq!(m.try_insert(k, k), Ok(None)); // every insert hits the tail append
-        }
-        assert!(m.keys().iter().copied().eq(0..100)); // sorted, unique
-        assert_eq!(m.try_insert(99, 999), Ok(Some(99))); // equal-to-max key → replace, not append
-        assert_eq!(m.len(), 100);
-        assert_eq!(m.get(&99), Some(&999));
-        assert_eq!(m.try_insert(200, 200), Ok(None)); // strictly-greater → fast-path append
-        assert_eq!(m.try_insert(150, 150), Ok(None)); // mid-range → binary-search path
-        assert!(m.keys().iter().copied().eq((0..100).chain([150, 200])));
-        assert_eq!(m.get(&150), Some(&150));
-        assert_eq!(m.values().len(), m.keys().len()); // columns stay length-locked
     }
 
     #[test]
@@ -872,20 +773,6 @@ mod alloc_tests {
     }
 
     #[test]
-    fn retain_preserves_key_order_and_alignment() {
-        let mut m: SortedColumnMap<Vec<i32>, Vec<i32>> =
-            SortedColumnMap::try_from_iter([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
-        m.retain(|k, v| {
-            *v += 1;
-            k % 2 == 0
-        });
-        assert_eq!(m.keys(), &[2, 4]); // still sorted, columns aligned
-        assert_eq!(m.values(), &[21, 41]);
-        assert_eq!(m.get(&2), Some(&21));
-        assert_eq!(m.get(&3), None);
-    }
-
-    #[test]
     fn range_returns_aligned_subslices() {
         let m: SortedColumnMap<Vec<i32>, Vec<&str>> =
             SortedColumnMap::try_from_iter([(1, "a"), (2, "b"), (3, "c"), (4, "d")]).unwrap();
@@ -939,19 +826,14 @@ mod alloc_tests {
     }
 }
 
-// heapless is the alloc-free fixed-cap backend: exercises the bounded paths,
-// the capacity pre-check, and the order-preserving insert-at-cap.
+// heapless is the alloc-free fixed-cap backend, so this runs under
+// `--no-default-features --features heapless` — the config's one bounded
+// column-map check (the semantics are property-tested at all-features).
 #[cfg(all(test, feature = "heapless"))]
 mod heapless_tests {
     use heapless::Vec;
 
     use crate::SortedColumnMap;
-
-    #[test]
-    fn capacity_reports_fixed_bound() {
-        let m: SortedColumnMap<Vec<u8, 4>, Vec<u8, 4>> = SortedColumnMap::new();
-        assert_eq!(m.capacity(), Some(4));
-    }
 
     #[test]
     fn try_insert_overflow_hands_back_the_pair() {
@@ -967,38 +849,6 @@ mod heapless_tests {
         assert_eq!(m.keys(), &[2, 3]);
         // A replacement at the bound still succeeds (consumes no capacity).
         assert_eq!(m.try_insert(2, 99), Ok(Some(20)));
-    }
-
-    #[test]
-    fn entry_or_try_insert_respects_capacity() {
-        // Cap 2, full. A bounded column has no infallible `or_insert`;
-        // `or_try_insert` updates an occupied slot (no capacity used) but rejects
-        // a new key against the combined cap — even one that would sort in the
-        // middle (the cap is pre-checked before any shift).
-        let mut m: SortedColumnMap<Vec<u8, 2>, Vec<u8, 2>> = SortedColumnMap::new();
-        m.try_extend([(2, 20), (3, 30)]).unwrap();
-
-        // Occupied update in place succeeds even at capacity.
-        *m.entry(2)
-            .or_try_insert(0)
-            .expect("update consumes no capacity") = 21;
-        assert_eq!(m.get(&2), Some(&21));
-
-        // A genuinely new key at the bound is rejected, handing back `(key, value)`;
-        // nothing is half-inserted (both columns stay length 2).
-        let err = m.entry(1).or_try_insert(10).expect_err("columns are full");
-        assert_eq!(err.into_inner(), (1, 10));
-        assert_eq!(m.len(), 2);
-        assert_eq!(m.keys(), &[2, 3]);
-    }
-
-    #[test]
-    fn from_sorted_iter_dup_beats_capacity() {
-        // Cap 2 with only one slot used: the dup is rejected as a duplicate, not as a
-        // capacity failure — a duplicate key consumes no capacity.
-        let err = SortedColumnMap::<Vec<u8, 2>, Vec<u8, 2>>::try_from_sorted_iter([(1, 1), (1, 2)])
-            .expect_err("duplicate key 1");
-        assert_eq!(err.into_inner(), (1, 2));
     }
 }
 

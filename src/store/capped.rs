@@ -173,14 +173,6 @@ impl<S: IntoIterator> IntoIterator for Capped<S> {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn capacity_over_unbounded_inner_is_our_cap() {
-        use alloc::vec::Vec;
-        let c: Capped<Vec<u8>> = Capped::with_capacity(3);
-        assert_eq!(c.capacity(), Some(3));
-    }
-
     #[cfg(feature = "heapless")]
     #[test]
     fn capacity_is_min_of_our_cap_and_inner_bound() {
@@ -206,18 +198,6 @@ mod tests {
         // Different contents stay unequal regardless of cap.
         let c: Capped<Vec<u8>> = Capped::from_store(vec![1, 2], 9);
         assert_ne!(a, c);
-    }
-
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn try_insert_at_errors_at_cap_and_preserves_value() {
-        use alloc::vec::Vec;
-        let mut c: Capped<Vec<u8>> = Capped::with_capacity(2);
-        c.try_insert_at(0, 1).expect("room");
-        c.try_insert_at(1, 2).expect("room");
-        let err = c.try_insert_at(2, 9).expect_err("at cap");
-        assert_eq!(err.into_inner(), 9);
-        assert_eq!(c.len(), 2); // rejected element did not land
     }
 
     #[cfg(feature = "alloc")]

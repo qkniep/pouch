@@ -338,19 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn errors_only_when_the_spill_tier_is_full() {
-        let mut small = [0u8; 1];
-        let mut big = [0u8; 2];
-        let mut s = Spill::from_tiers(ScratchVec::new(&mut small), ScratchVec::new(&mut big));
-
-        push(&mut s, 1).expect("room"); // inline
-        push(&mut s, 2).expect("room"); // spills, now in the 2-slot tier
-        let err = push(&mut s, 3).expect_err("spill tier is full");
-        assert_eq!(err.into_inner(), 3);
-        assert_eq!(s.as_slice(), &[1, 2]); // unchanged on overflow
-    }
-
-    #[test]
     fn remove_and_clear_work_across_the_boundary() {
         let mut small = [0u8; 2];
         let mut big = [0u8; 8];
@@ -434,30 +421,6 @@ mod tests {
         // Once spilled, reserve forwards to the spill tier directly.
         s.reserve(1000);
         assert!(s.spill.capacity() >= 1011);
-    }
-
-    // The smallvec-by-composition shape: inline ArrayVec spilling to an unbounded
-    // Vec. Being `Unbounded` through `B`, it earns the collection layer's
-    // infallible `insert`.
-    #[cfg(all(feature = "arrayvec", feature = "alloc"))]
-    #[test]
-    fn arrayvec_spilling_to_vec_backs_a_sorted_set() {
-        use alloc::vec::Vec;
-
-        use arrayvec::ArrayVec;
-
-        use crate::SortedSet;
-
-        let mut set: SortedSet<Spill<ArrayVec<u32, 4>, Vec<u32>>> = SortedSet::new();
-        // Insert out of order and past the inline bound; the set stays sorted and
-        // spills transparently.
-        for x in [5, 3, 8, 1, 9, 2, 7] {
-            set.insert(x); // infallible — store is Unbounded via Vec
-        }
-        assert_eq!(set.as_slice(), &[1, 2, 3, 5, 7, 8, 9]);
-        assert!(set.contains(&7));
-        assert!(!set.contains(&4));
-        assert_eq!(set.capacity(), None); // unbounded, via the Vec spill tier
     }
 
     // Fully allocation-free collection: an inline ArrayVec spilling into a borrowed

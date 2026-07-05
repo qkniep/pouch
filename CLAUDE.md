@@ -33,6 +33,7 @@ src/serde_impls.rs    cfg(serde): Serialize/Deserialize for every collection
 src/column_map.rs     cfg(soa): UnsortedColumnMap (struct-of-arrays unsorted map — two stores; + column_map/entry.rs: ColumnEntry)
 src/sorted_column_map.rs  cfg(soa): SortedColumnMap (struct-of-arrays sorted map — two stores)
 tests/smoke.rs        integration tests
+tests/properties.rs   property-based differential tests (proptest vs BTreeMap/BTreeSet/Vec oracles)
 ```
 
 `lib.rs` re-exports everything to the crate root, so the public API is flat
@@ -106,13 +107,33 @@ cargo nextest run --lib --no-default-features --features heapless  # fixed-cap, 
 ```
 
 The `--lib` is required: it scopes the run to the in-crate unit tests, which gate
-themselves per backend with `#[cfg(feature = …)]`. `tests/smoke.rs` names every
-backend ungated, so its `[[test]]` entry in `Cargo.toml` carries
-`required-features` for the full feature set — under any partial set (the
-default included, now that defaults are lean) cargo **silently skips** the
-target rather than failing to build it. A green partial run therefore says
-nothing about the smoke suite; only the all-features run (`just test`, CI's
-test job) executes it.
+themselves per backend with `#[cfg(feature = …)]`. `tests/smoke.rs` and
+`tests/properties.rs` name every backend ungated, so their `[[test]]` entries in
+`Cargo.toml` carry `required-features` for the full feature set — under any
+partial set (the default included, now that defaults are lean) cargo
+**silently skips** the target rather than failing to build it. A green partial
+run therefore says nothing about those suites; only the all-features run
+(`just test`, CI's test job) executes them.
+
+`tests/properties.rs` is the property-based layer and owns the **semantics**:
+differential op sequences checked step-by-step against std oracles (`Vec` for
+the store contract, `BTreeSet`/`BTreeMap` for the collections — insert/remove/
+capacity behavior, duplicates-consume-no-capacity, column length-lock), plus
+set-algebra, bulk-builder, and serde-policy properties. A new backend earns its
+correctness argument with one line in the `store_contract!` list; do **not**
+add per-backend collection instantiations — those are one per *behavior class*
+({unbounded, bounded} × {sorted, unsorted}, plus a single suite-wide hybrid
+spill-crossing instance — a hybrid reports `capacity() == None`, so it's the
+unbounded case to collection code), because the collection layer is generic
+over `Store` and can't vary by backend. Example tests (the
+unit modules and `smoke.rs`) deliberately cover only what the harness doesn't
+drive — trait wiring (`Extend`/`FromIterator`, infallible `insert`/`or_insert`),
+iterators, borrowed forms, `range`, entry variants, panic-safety, debug guards —
+and each partial-feature config keeps at least one executing test module so the
+spot-check commands above stay meaningful; don't add example tests for
+capacity/duplicate semantics. On failure proptest writes a seed file next to
+the source (`tests/properties.proptest-regressions`) — commit it; it replays
+the exact case first on every future run.
 
 ## Architecture — the three orthogonal axes
 
