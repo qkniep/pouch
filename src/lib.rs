@@ -1,5 +1,6 @@
-//! `pouch` — allocation-avoiding flat sets and maps for small collections:
-//! the default [`Set`] / [`Map`] keep their elements **inline** until they
+//! `pouch` — allocation-avoiding flat sets and maps for small collections.
+//!
+//! The default [`Set`] / [`Map`] keep their elements **inline** until they
 //! outgrow `N`, so many small collections nested in a larger structure
 //! (adjacency lists, per-key buckets, `Vec<Set<_>>`) cost about one heap
 //! allocation instead of one each.
@@ -75,7 +76,32 @@
 //! drags value payloads through cache. Worth it for large values or miss-heavy
 //! scans; for everything else [`SortedMap`] is the right default.
 //!
-//! # NOTE on the two "full"s
+//! # Feature flags
+//!
+//! Lean by default — `default = ["std", "smallvec"]`, enough for the blessed
+//! [`Set`] / [`Map`] aliases and no more; every other backend is opt-in.
+//!
+//!   * **`std`** *(default)* — implements [`std::error::Error`] for the crate's error
+//!     types; implies `alloc`.
+//!   * **`alloc`** — the heap path (`Vec`, and the spill tier of the inline hybrids).
+//!     Pulled in transitively by `std` / `smallvec` / `tinyvec`.
+//!   * **`smallvec`** *(default)* — the `SmallVec` backend behind [`Set`] / [`Map`];
+//!     implies `alloc`.
+//!   * **`tinyvec`** — the `TinyVec` backend (`T: Default`, `unsafe`-free); implies
+//!     `alloc`.
+//!   * **`arrayvec`** / **`heapless`** — the fixed-capacity, allocation-free backends
+//!     (`ArrayVec`, `heapless::Vec`); neither requires `alloc`.
+//!   * **`soa`** — the struct-of-arrays column maps (see *Specialists* above);
+//!     backend-agnostic, so it pulls in no dependency.
+//!   * **`serde`** — `Serialize` / `Deserialize` for every collection. Sets and bags are
+//!     sequences, maps are maps; deserialization reuses the crate's fallible builders, so
+//!     **sets dedup silently, maps reject duplicate keys** (a data error, unlike std's
+//!     last-wins), and a bounded store that fills mid-stream is a `de::Error` — bounded
+//!     deserialization is input validation for free. [`Capped`] / [`ScratchVec`]-backed
+//!     collections serialize but can't deserialize (no `StoreNew`); build those via
+//!     `from_store` + `try_extend`.
+//!
+//! # Two kinds of "full"
 //!
 //!   1. *logical capacity* (an arrayvec/heapless bound, or a `Capped` cap) -> recoverable
 //!      [`CapacityError`], modelled here.
@@ -84,6 +110,7 @@
 //!      can still OOM below its cap.
 
 #![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

@@ -360,7 +360,9 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the range's start is greater than its end.
+    /// Panics if the range's start is greater than its end — which includes an exclusive
+    /// range whose bounds are equal *and* present in the map (e.g. `(Bound::Excluded(k),
+    /// Bound::Excluded(k))` when `k` is a key).
     pub fn range<Q, R>(&self, range: R) -> &[(K, V)]
     where
         K: Borrow<Q>,

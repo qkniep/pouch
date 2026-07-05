@@ -55,6 +55,10 @@ use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 /// The struct-of-arrays counterpart of [`SortedMap`](crate::SortedMap) — trades the
 /// `&[(K, V)]` view for a dense key column the binary search strides through without
 /// touching values (a win only for large values; see the module docs). Needs `K: Ord`.
+///
+/// Panicking key/value destructors are unsupported: the two columns are mutated in
+/// sequence, so a destructor that unwinds mid-mutation (in [`remove`](Self::remove),
+/// [`clear`](Self::clear), …) can leave them unequal length if the panic is caught.
 // The stored order is canonical (sorted by key, unique keys), so the structural
 // derives are the semantic ones, as for `SortedMap` — this map can key another
 // map or live in a `BTreeSet`. One caveat: the derived `PartialOrd`/`Ord`
