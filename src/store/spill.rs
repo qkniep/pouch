@@ -8,7 +8,7 @@
 //! always end up there); size `B` to hold at least `A`'s capacity, or the
 //! migration has nowhere to land.
 //!
-//! `Spill<ArrayVec<[T; N]>, Vec<T>>` reproduces a `SmallVec` by composition (no
+//! `Spill<ArrayVec<T, N>, Vec<T>>` reproduces a `SmallVec` by composition (no
 //! heap until spill, then unbounded), and being [`Unbounded`] through `B` it gets
 //! the collection layer's infallible `insert`. The real payoff is exotic spill
 //! tiers no crate ships — e.g. `Spill<ArrayVec<T, N>, ScratchVec<T>>` for a
@@ -23,7 +23,11 @@ use crate::error::CapacityError;
 /// Two-tier store: `inline` until it fills, then everything migrates to `spill` and stays
 /// there.
 ///
-/// See the module docs.
+/// The elements live in exactly one tier at a time — the migration moves them all at
+/// once — so the `as_slice()` contiguity contract holds and the logical capacity is
+/// `spill`'s. Size `B` to hold at least `A`'s capacity, or the migration has nowhere to
+/// land. When `B` is [`Unbounded`], so is the `Spill`, which unlocks the collection
+/// layer's infallible `insert`.
 #[derive(Clone, Debug)]
 pub struct Spill<A, B> {
     inline: A,
@@ -104,13 +108,23 @@ impl<A: Store, B: Store> Spill<A, B> {
     ///
     /// # Panics
     ///
-    /// In debug builds, panics if either tier is non-empty. The spill tier must be
-    /// able to hold at least the inline tier's capacity; if it is smaller, a later
-    /// insert that triggers the migration panics.
+    /// In debug builds, panics if either tier is non-empty, or if the spill tier's
+    /// bound is smaller than the inline tier's capacity, which would otherwise report a
+    /// `capacity()` below the inline tier's live `len()` and only panic later, when the
+    /// migration has nowhere to land. Release builds trust the precondition unchecked.
     pub fn from_tiers(inline: A, spill: B) -> Self {
         debug_assert!(
             inline.is_empty() && spill.is_empty(),
             "Spill::from_tiers: both tiers must start empty",
+        );
+        // The spill tier must hold at least the inline capacity (module docs): an
+        // unbounded spill always does; a bounded one must be `>=` the inline bound.
+        // An unbounded inline tier never fills, so it imposes no constraint.
+        debug_assert!(
+            spill
+                .capacity()
+                .is_none_or(|sc| inline.capacity().is_none_or(|ic| sc >= ic)),
+            "Spill::from_tiers: spill tier capacity must be at least the inline tier's",
         );
         Spill {
             inline,
@@ -465,5 +479,19 @@ mod tests {
         }
         assert_eq!(set.as_slice(), &[1, 2, 3, 5, 7, 8, 9]);
         assert_eq!(set.capacity(), Some(16));
+    }
+
+    // A spill tier smaller than the inline tier would report a `capacity()` below the
+    // inline tier's live `len()`; the debug guard rejects it at construction. Gated on
+    // `debug_assertions`, since the check compiles out in release.
+    #[cfg(all(debug_assertions, feature = "arrayvec"))]
+    #[test]
+    #[should_panic(expected = "spill tier capacity must be at least the inline tier's")]
+    fn from_tiers_rejects_spill_smaller_than_inline() {
+        use arrayvec::ArrayVec;
+
+        let mut scratch = [0u32; 2]; // spill holds 2 < inline's 4
+        let _: Spill<ArrayVec<u32, 4>, ScratchVec<u32>> =
+            Spill::with_spill(ScratchVec::new(&mut scratch));
     }
 }

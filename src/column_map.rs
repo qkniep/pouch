@@ -19,8 +19,9 @@
 //! The trade is deliberate and is why this is a separate type, not a tweak to
 //! `UnsortedMap`:
 //!   * no `as_slice() -> &[(K, V)]`, since the pairs don't exist contiguously — enumerate
-//!     via [`keys`](UnsortedColumnMap::keys) / [`values`](UnsortedColumnMap::values),
-//!     which `zip` back together;
+//!     as `(&K, &V)` via [`iter`](UnsortedColumnMap::iter) (or `&map`), or reach a single
+//!     column through the [`keys`](UnsortedColumnMap::keys) /
+//!     [`values`](UnsortedColumnMap::values) slices;
 //!   * [`from_store`](UnsortedColumnMap::from_store) takes two stores (no zero-copy wrap
 //!     of an existing `Vec<(K, V)>`);
 //!   * two backends to name, and the effective [`capacity`](UnsortedColumnMap::capacity)
@@ -97,6 +98,98 @@ where
         .iter()
         .position(|k| k.borrow() == needle)
         .map(|i| offset + i)
+}
+
+/// Iterator over a column map's entries as `(&K, &V)` pairs — what
+/// [`UnsortedColumnMap::iter`] and
+/// [`SortedColumnMap::iter`](crate::SortedColumnMap::iter) return, and what `&map`
+/// iterates as.
+///
+/// Zips the two dense column slices back into entries; double-ended, exact-size,
+/// and fused, like the slice iterators underneath.
+// A named struct rather than a bare `Zip<…>` alias, so the returned type is
+// nameable and stable while the two-store representation stays private —
+// mirroring [`MapIter`](crate::MapIter) for the single-store maps.
+#[derive(Clone, Debug)]
+pub struct ColumnIter<'a, K, V> {
+    inner: core::iter::Zip<core::slice::Iter<'a, K>, core::slice::Iter<'a, V>>,
+}
+
+impl<'a, K, V> ColumnIter<'a, K, V> {
+    pub(crate) fn new(keys: &'a [K], values: &'a [V]) -> Self {
+        ColumnIter {
+            inner: keys.iter().zip(values.iter()),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for ColumnIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
+        self.inner.fold(init, f)
+    }
+}
+
+impl<K, V> DoubleEndedIterator for ColumnIter<'_, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back()
+    }
+}
+
+impl<K, V> ExactSizeIterator for ColumnIter<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for ColumnIter<'_, K, V> {}
+
+/// Retains only the entries for which `f` returns `true`, keeping both columns aligned
+/// and the survivors in their original relative order — the shared engine under the two
+/// column maps' `retain`.
+///
+/// The two-store analogue of [`retain_in`](crate::store::retain_in): each kept entry is
+/// swapped down to its final slot in *both* columns in lockstep, then the doomed tail is
+/// popped off each. `O(n)`, no `Clone` bound. Order-preserving, so it upholds
+/// `SortedColumnMap`'s sorted-key invariant as well as `UnsortedColumnMap`'s.
+pub(crate) fn retain_columns<K, V, SK, SV>(
+    keys: &mut SK,
+    values: &mut SV,
+    mut f: impl FnMut(&K, &mut V) -> bool,
+) where
+    SK: StoreMut<Elem = K>,
+    SV: StoreMut<Elem = V>,
+{
+    let ks = keys.as_mut_slice();
+    let vs = values.as_mut_slice();
+    let mut write = 0;
+    for read in 0..ks.len() {
+        if f(&ks[read], &mut vs[read]) {
+            if write != read {
+                ks.swap(write, read);
+                vs.swap(write, read);
+            }
+            write += 1;
+        }
+    }
+    while keys.len() > write {
+        // Bind the key so it drops only after *both* columns are popped: a panicking
+        // `K::drop` between the two would desync their lengths (see `remove`).
+        let _key = keys.remove_at(keys.len() - 1);
+        values.remove_at(values.len() - 1);
+    }
 }
 
 /// A map with no key ordering, stored **column-wise**: keys in `SK`, values in `SV`, kept
@@ -197,6 +290,63 @@ impl<SK: StoreMut, SV: StoreMut> UnsortedColumnMap<SK, SV> {
     pub fn reserve(&mut self, additional: usize) {
         self.keys.reserve(additional);
         self.values.reserve(additional);
+    }
+}
+
+// Iteration accessors, `K: Eq`-free — they only walk the columns.
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
+where
+    SK: Store<Elem = K>,
+    SV: Store<Elem = V>,
+{
+    /// Returns an iterator over the entries as `(&K, &V)` pairs, in no particular order.
+    ///
+    /// Zips the two columns; `&map` iterates the same way. To walk a single column use
+    /// the [`keys`](Self::keys) / [`values`](Self::values) slices directly.
+    pub fn iter(&self) -> ColumnIter<'_, K, V> {
+        ColumnIter::new(self.keys.as_slice(), self.values.as_slice())
+    }
+}
+
+// The mutating iteration accessors need no `K: Eq` either: handing out `&mut V`
+// can't smuggle in a duplicate key (only `&mut K` could, so there is no
+// `keys_mut`).
+impl<K, V, SK, SV> UnsortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K>,
+    SV: StoreMut<Elem = V>,
+{
+    /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
+    /// updates, the dense `&mut [V]` walk SoA vectorizes best.
+    pub fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
+    where
+        K: 'a,
+        V: 'a,
+    {
+        self.keys
+            .as_slice()
+            .iter()
+            .zip(self.values.as_mut_slice().iter_mut())
+    }
+
+    /// Returns a mutable iterator over the values, in no particular order.
+    pub fn values_mut<'a>(
+        &'a mut self,
+    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
+    where
+        V: 'a,
+    {
+        self.values.as_mut_slice().iter_mut()
+    }
+
+    /// Retains only the entries for which `f` returns `true`, keeping both columns
+    /// aligned. `O(n)`.
+    ///
+    /// The predicate gets `&mut V`, so it can update the entries it keeps.
+    pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, f: F) {
+        retain_columns(&mut self.keys, &mut self.values, f);
     }
 }
 
@@ -350,7 +500,10 @@ where
         Q: Eq + ?Sized,
     {
         let i = self.position(key)?;
-        self.keys.swap_remove_at(i);
+        // Bind the removed key so it drops only after *both* columns are mutated: a
+        // panicking `K::drop` between the two would leave `keys.len() != values.len()`,
+        // breaking the length-lock invariant on a caught unwind.
+        let _key = self.keys.swap_remove_at(i);
         Some(self.values.swap_remove_at(i))
     }
 
@@ -425,6 +578,10 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut map = Self::new();
+        let iter = iter.into_iter();
+        // One up-front growth per column from the size hint, so a growable backend pays a
+        // single reallocation instead of a `log n` burst (see `append_all`).
+        map.reserve(iter.size_hint().0);
         for (key, value) in iter {
             if map.position(&key).is_some() {
                 return Err(BuildError::DuplicateKey((key, value)));
@@ -451,6 +608,38 @@ where
             Ok(prev) => prev,
             Err(_) => unreachable!("Unbounded columns reported a capacity failure"),
         }
+    }
+}
+
+impl<'a, K, V, SK, SV> IntoIterator for &'a UnsortedColumnMap<SK, SV>
+where
+    SK: Store<Elem = K>,
+    SV: Store<Elem = V>,
+    K: 'a,
+    V: 'a,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = ColumnIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Consumes the map, yielding owned `(K, V)` entries in no particular order.
+///
+/// Available when both backing stores are themselves consumable into their elements; zips
+/// the two owned column iterators back into pairs.
+impl<SK, SV> IntoIterator for UnsortedColumnMap<SK, SV>
+where
+    SK: Store + IntoIterator<Item = <SK as Store>::Elem>,
+    SV: Store + IntoIterator<Item = <SV as Store>::Elem>,
+{
+    type Item = (SK::Elem, SV::Elem);
+    type IntoIter = core::iter::Zip<SK::IntoIter, SV::IntoIter>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys.into_iter().zip(self.values)
     }
 }
 
@@ -622,6 +811,63 @@ mod alloc_tests {
         assert_eq!(b.get(&3), None);
     }
 
+    #[test]
+    fn iter_zips_columns_and_is_double_ended() {
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
+        m.try_extend([(1, "a"), (2, "b"), (3, "c")]).unwrap();
+        // `iter()` zips the two columns back into `(&K, &V)` entries.
+        let collected: Vec<(i32, &str)> = m.iter().map(|(&k, &v)| (k, v)).collect();
+        assert_eq!(collected, &[(1, "a"), (2, "b"), (3, "c")]);
+        // `&map` iterates the same way, and the iterator is exact-size / double-ended.
+        let mut it = (&m).into_iter();
+        assert_eq!(it.len(), 3);
+        assert_eq!(it.next(), Some((&1, &"a")));
+        assert_eq!(it.next_back(), Some((&3, &"c")));
+        assert_eq!(it.next(), Some((&2, &"b")));
+        assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn into_iter_yields_owned_pairs() {
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<&str>> = UnsortedColumnMap::new();
+        m.try_extend([(1, "a"), (2, "b")]).unwrap();
+        let owned: Vec<(i32, &str)> = m.into_iter().collect();
+        assert_eq!(owned, &[(1, "a"), (2, "b")]);
+    }
+
+    #[test]
+    fn iter_mut_and_values_mut_update_in_place() {
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<i32>> = UnsortedColumnMap::new();
+        m.try_extend([(1, 10), (2, 20), (3, 30)]).unwrap();
+        // iter_mut sees keys read-only and values mutably.
+        for (k, v) in m.iter_mut() {
+            *v += *k;
+        }
+        assert_eq!(m.values(), &[11, 22, 33]);
+        for v in m.values_mut() {
+            *v *= 2;
+        }
+        assert_eq!(m.values(), &[22, 44, 66]);
+        assert_eq!(m.keys(), &[1, 2, 3]); // keys untouched
+    }
+
+    #[test]
+    fn retain_keeps_columns_aligned() {
+        let mut m: UnsortedColumnMap<Vec<i32>, Vec<i32>> = UnsortedColumnMap::new();
+        m.try_extend([(1, 10), (2, 20), (3, 30), (4, 40)]).unwrap();
+        // Drop odd keys; the predicate can also mutate the survivors' values.
+        m.retain(|k, v| {
+            *v += 1;
+            k % 2 == 0
+        });
+        assert_eq!(m.keys(), &[2, 4]);
+        assert_eq!(m.values(), &[21, 41]);
+        // Survivors still resolve to their own values (columns stayed aligned).
+        assert_eq!(m.get(&2), Some(&21));
+        assert_eq!(m.get(&4), Some(&41));
+        assert_eq!(m.get(&1), None);
+    }
+
     // The trust-contract guards fire only in debug builds, so gate these on it.
     #[cfg(debug_assertions)]
     #[test]
@@ -714,5 +960,71 @@ mod hetero_tests {
         let err = m.try_insert(3, 30).expect_err("key column is full at 2");
         assert_eq!(err.into_inner(), (3, 30));
         assert_eq!(m.len(), 2);
+    }
+}
+
+// `catch_unwind` needs `std`; guards the length-lock invariant against a panicking
+// `K::drop` mid-`remove`.
+#[cfg(all(test, feature = "std"))]
+mod drop_panic_tests {
+    use std::borrow::Borrow;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::vec::Vec;
+
+    use crate::UnsortedColumnMap;
+
+    /// A key whose destructor panics when armed. Ordering/equality go through the `id`
+    /// alone (via `Borrow<i32>`), so lookups never touch the bomb.
+    #[derive(PartialEq, Eq)]
+    struct DropBomb {
+        id: i32,
+        armed: bool,
+    }
+
+    impl Borrow<i32> for DropBomb {
+        fn borrow(&self) -> &i32 {
+            &self.id
+        }
+    }
+
+    impl Drop for DropBomb {
+        fn drop(&mut self) {
+            assert!(!self.armed, "DropBomb::drop");
+        }
+    }
+
+    #[test]
+    fn remove_keeps_columns_aligned_when_key_drop_panics() {
+        let mut m: UnsortedColumnMap<Vec<DropBomb>, Vec<i32>> = UnsortedColumnMap::new();
+        // Only the key we remove is armed; the survivors drop cleanly at end of test.
+        m.try_insert(DropBomb { id: 1, armed: true }, 10).unwrap();
+        m.try_insert(
+            DropBomb {
+                id: 2,
+                armed: false,
+            },
+            20,
+        )
+        .unwrap();
+        m.try_insert(
+            DropBomb {
+                id: 3,
+                armed: false,
+            },
+            30,
+        )
+        .unwrap();
+
+        // Remove the armed key via a plain `&i32` needle (which never drop-panics);
+        // its Drop panics mid-removal and we catch the unwind.
+        let caught = panic::catch_unwind(AssertUnwindSafe(|| m.remove(&1)));
+        assert!(caught.is_err(), "the armed key's Drop must panic");
+
+        // The invariant: the key drops only *after* both columns are mutated, so the
+        // unwind leaves them the same length — aligned lookups, not desync.
+        assert_eq!(m.keys().len(), m.values().len());
+        assert_eq!(m.keys().len(), 2);
+        assert_eq!(m.get(&2), Some(&20));
+        assert_eq!(m.get(&3), Some(&30));
     }
 }

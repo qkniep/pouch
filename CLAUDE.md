@@ -10,8 +10,11 @@ over `Vec`, `SmallVec`, `TinyVec`, `ArrayVec`, or `heapless::Vec` — heap, inli
 hybrid — optionally bounded by a runtime cap. Two collection flavors:
 `SortedSet`/`SortedMap` (order kept in the store, `O(log n)` lookup) and
 `UnsortedSet`/`UnsortedMap` (`O(1)` insert/delete, `O(n)` search, only `Eq` required).
-`ColumnMap` and `SortedColumnMap` are struct-of-arrays variants of `UnsortedMap` /
-`SortedMap` (keys and values in two parallel stores) — see the layout note below.
+`Bag` is the unconstrained sequence facade (duplicates, insertion order, no `Eq`/`Ord`
+bound) that gives composed stores an ergonomic `Vec`-shaped API. `UnsortedColumnMap` and
+`SortedColumnMap` (both behind the `soa` feature) are struct-of-arrays variants of
+`UnsortedMap` / `SortedMap` (keys and values in two parallel stores) — see the layout
+note below.
 
 Module layout (modern `foo.rs` + `foo/` style, no `mod.rs` files):
 
@@ -24,10 +27,11 @@ src/store/backend.rs  mostly cfg-gated `mod vec; mod smallvec; …` — impls on
 src/store/backend/*   one file per backend (slice, vec, smallvec, tinyvec, arrayvec, heapless)
 src/set.rs            SortedSet, UnsortedSet
 src/set/algebra.rs    merge-based set algebra: Union/Intersection/… iterators, subset/disjoint predicates
-src/map.rs            SortedMap, UnsortedMap
+src/map.rs            SortedMap, UnsortedMap  (+ src/map/entry.rs: Entry over Elem = (K, V))
+src/bag.rs            Bag (unconstrained Vec-shaped sequence facade over any store)
 src/serde_impls.rs    cfg(serde): Serialize/Deserialize for every collection
-src/column_map.rs     ColumnMap (struct-of-arrays unsorted map — two stores)
-src/sorted_column_map.rs  SortedColumnMap (struct-of-arrays sorted map — two stores)
+src/column_map.rs     cfg(soa): UnsortedColumnMap (struct-of-arrays unsorted map — two stores; + column_map/entry.rs: ColumnEntry)
+src/sorted_column_map.rs  cfg(soa): SortedColumnMap (struct-of-arrays sorted map — two stores)
 tests/smoke.rs        integration tests
 ```
 
@@ -131,7 +135,7 @@ so it is `O(1)` on every backend and no backend implements it. It is the unsorte
 collections' delete primitive; sorted collections must not use it (it breaks order).
 
 **Layout — the one deliberate exception.** Every collection above holds exactly *one*
-`Store` (`Elem = T` for sets, `(K, V)` for maps); `ColumnMap` (`src/column_map.rs`) is
+`Store` (`Elem = T` for sets, `(K, V)` for maps); `UnsortedColumnMap` (`src/column_map.rs`) is
 the sole exception, holding *two* length-locked stores — `keys: SK` (`Elem = K`) and
 `values: SV` (`Elem = V`). This is struct-of-arrays: a key lookup scans a dense `[K]`
 slice instead of reading the key out of every `(K, V)` pair, so it never loads the
@@ -147,13 +151,14 @@ values at `n ≥ 4k`). The cost is paid in API, not invariants: no
 `as_slice() -> &[(K, V)]` (use `keys()`/`values()`), `from_store` takes two stores, and
 `capacity()` is the `min` of the two columns' bounds. SoA can't be a `Store` (the
 `as_slice -> &[Elem]` contract is AoS by definition), so it must live as a two-store
-collection. There are **two** of these: `ColumnMap` (unsorted) and its sorted twin
-`SortedColumnMap` (`src/sorted_column_map.rs`). The sorted twin earns its keep only for
+collection. There are **two** of these (both behind the `soa` feature): `UnsortedColumnMap`
+(unsorted) and its sorted twin `SortedColumnMap` (`src/sorted_column_map.rs`). The sorted
+twin earns its keep only for
 *large* values — the strided `(K, V)` binary search drags value bytes through cache,
 the dense `[K]` search does not (~1.2–1.3× at `sizeof(V)/sizeof(K) ≳ 4`); for word-sized
 values it gains little, and at small `n` it *loses* on hits (the value now lives in a
 separate cache line), so `SortedMap` stays the default. Both pre-check the combined cap
-on insert so neither column half-inserts (no rollback). They differ on delete: `ColumnMap`
+on insert so neither column half-inserts (no rollback). They differ on delete: `UnsortedColumnMap`
 swap-removes the same index in both columns (`O(1)`, order-free); `SortedColumnMap` must
 shift both in lockstep to keep keys sorted (`O(n)`).
 
@@ -254,6 +259,10 @@ only `&mut`-returning ones (`get_mut`) belong under `StoreMut`.
 
 ## Feature flags (`Cargo.toml`)
 
-`default = ["std", "smallvec", "tinyvec", "arrayvec", "heapless"]`. `std → alloc`;
-`smallvec`/`tinyvec` imply `alloc`; `arrayvec`/`heapless` are alloc-free. Each optional
-dependency is gated by the matching feature and pulled in with `default-features = false`.
+`default = ["std", "smallvec"]` — deliberately lean (enough for the blessed `Set`/`Map`
+aliases, no more); the other backends are opt-in. `std → alloc`; `smallvec`/`tinyvec`
+imply `alloc`; `arrayvec`/`heapless` are alloc-free. Each optional backend dependency is
+gated by the matching feature and pulled in with `default-features = false`. Two more
+features carry no backend: `soa` gates the struct-of-arrays column maps
+(`UnsortedColumnMap` / `SortedColumnMap`, backend-agnostic), and `serde` gates the
+`Serialize`/`Deserialize` impls (`src/serde_impls.rs`, `no_std`).
