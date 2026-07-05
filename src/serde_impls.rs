@@ -39,10 +39,26 @@ use crate::{
 #[cfg(not(feature = "soa"))]
 use crate::{Bag, SortedMap, SortedSet, UnsortedMap, UnsortedSet};
 
-/// Serde's "cautious" length policy: trust the wire's claimed length only up
-/// to a small bound, so a hostile `len` can't force a giant pre-allocation.
-/// (The builders still grow beyond this fine — it only shapes `reserve`.)
+/// Serde's "cautious" length policy: trust the wire's claimed length only up to
+/// a small bound, so a hostile `len` can't force a giant pre-allocation. (The
+/// builders still grow beyond this fine — it only shapes `reserve`.)
+///
+/// The cap is the tighter of two guards: a flat **element-count** ceiling, and
+/// serde's own **byte** budget (`MAX_PREALLOC_BYTES / size_of::<Elem>()`), so a
+/// fat element type can't turn the count ceiling into a multi-megabyte reserve.
+/// `min` of the two is ≤ either alone, so this only ever reserves less.
 const CAUTIOUS_LEN_CAP: usize = 4096;
+const CAUTIOUS_MAX_PREALLOC_BYTES: usize = 1024 * 1024;
+
+/// The cautious reserve cap for an iterator yielding `Elem`-sized items — see
+/// [`CAUTIOUS_LEN_CAP`]. ZSTs never allocate, so the byte budget doesn't apply
+/// (and `size_of == 0` would divide by zero); fall back to the count ceiling.
+fn cautious_cap<Elem>() -> usize {
+    match core::mem::size_of::<Elem>() {
+        0 => CAUTIOUS_LEN_CAP,
+        sz => CAUTIOUS_LEN_CAP.min(CAUTIOUS_MAX_PREALLOC_BYTES / sz),
+    }
+}
 
 /// Drive a [`SeqAccess`] as a plain `Iterator`, so the crate's own builders
 /// (`try_from_iter`) can consume it unchanged.
@@ -79,9 +95,20 @@ where
         }
     }
 
+    // `SeqIter` is a private adapter whose only consumer is `append_all`, which
+    // reads slot 0 solely as a `reserve` hint. So we forward the deserializer's
+    // *claimed* remaining count as the lower bound even though a lying/erroring
+    // deserializer may yield fewer — a technical Iterator-contract stretch that
+    // is fully contained here. Reporting it as the honest upper bound instead
+    // (`(0, Some(n))`) would zero out that reserve and defeat the one-shot
+    // pre-allocation this plumbing exists for; over-reserving is safe and now
+    // byte-capped (see `cautious_cap`).
     fn size_hint(&self) -> (usize, Option<usize>) {
         (
-            self.access.size_hint().unwrap_or(0).min(CAUTIOUS_LEN_CAP),
+            self.access
+                .size_hint()
+                .unwrap_or(0)
+                .min(cautious_cap::<T>()),
             None,
         )
     }
@@ -118,9 +145,13 @@ where
         }
     }
 
+    // See `SeqIter::size_hint`: the claimed count is a `reserve` hint, byte-capped.
     fn size_hint(&self) -> (usize, Option<usize>) {
         (
-            self.access.size_hint().unwrap_or(0).min(CAUTIOUS_LEN_CAP),
+            self.access
+                .size_hint()
+                .unwrap_or(0)
+                .min(cautious_cap::<(K, V)>()),
             None,
         )
     }
