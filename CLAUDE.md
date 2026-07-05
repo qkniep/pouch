@@ -20,7 +20,7 @@ Module layout (modern `foo.rs` + `foo/` style, no `mod.rs` files):
 
 ```
 src/lib.rs            facade: crate docs, no_std setup, `pub use` re-exports, type aliases
-src/error.rs          CapacityError, BuildError, SortedBuildError
+src/error.rs          CapacityError, BuildError
 src/store.rs          Store / StoreMut / StoreNew / Unbounded traits  (pub mod store)
 src/store/capped.rs   Capped<S> adapter
 src/store/backend.rs  mostly cfg-gated `mod vec; mod smallvec; …` — impls only, nothing exported
