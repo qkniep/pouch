@@ -116,6 +116,14 @@ pub struct SortedSet<S> {
 
 impl<S: StoreNew> SortedSet<S> {
     /// Creates an empty `SortedSet`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let s: Set<u32> = Set::new();
+    /// assert!(s.is_empty());
+    /// ```
     pub fn new() -> Self {
         SortedSet { store: S::new() }
     }
@@ -159,6 +167,8 @@ impl<S: Store> SortedSet<S> {
     ///
     /// Shared-ref only: `&mut` access could break the sorted-and-deduplicated invariant
     /// that [`from_store`](Self::from_store) trusts.
+    ///
+    /// # Examples
     ///
     /// ```
     /// use pouch::Set;
@@ -212,6 +222,15 @@ impl<S: Store> SortedSet<S> {
     /// answers `contains("x")` without allocating a `String` to ask — as long as the
     /// borrowed form's `Ord` agrees with the element type's (the [`Borrow`] contract, as
     /// in the std collections).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let s: Set<u32> = [1, 2, 3].into_iter().collect();
+    /// assert!(s.contains(&2));
+    /// assert!(!s.contains(&5));
+    /// ```
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q> + Ord,
@@ -231,6 +250,8 @@ impl<S: Store> SortedSet<S> {
     /// (`str`, `[u8]`) needs the explicit tuple-of-`Bound`s shape — range sugar like
     /// `"a".."m"` is a `Range<&str>`, which can only bound `&str` itself:
     /// `set.range::<str, _>((Bound::Included("a"), Bound::Excluded("m")))`.
+    ///
+    /// # Examples
     ///
     /// ```
     /// use pouch::Set;
@@ -294,6 +315,8 @@ impl<S: Store> SortedSet<S> {
     ///
     /// Collect into an [`Unbounded`] set with `.cloned().collect()`, or `try_extend` a
     /// bounded one.
+    ///
+    /// # Examples
     ///
     /// ```
     /// use pouch::Set;
@@ -366,6 +389,8 @@ impl<S: StoreMut> SortedSet<S> {
     /// nothing. To *start* with capacity, wrap a pre-sized store instead:
     /// `SortedSet::from_store(Vec::with_capacity(n))`.
     ///
+    /// # Examples
+    ///
     /// ```
     /// use pouch::SortedSet;
     /// let mut s: SortedSet<Vec<u64>> = SortedSet::new();
@@ -409,6 +434,16 @@ where
     ///
     /// Order-preserving shift: `O(log n)` search, `O(n)` shift. `value` may be any
     /// borrowed form of the element type, like [`contains`](Self::contains).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let mut s: Set<u32> = [1, 2, 3].into_iter().collect();
+    /// assert!(s.remove(&2)); // was present
+    /// assert!(!s.remove(&2)); // already gone
+    /// assert_eq!(s.as_slice(), &[1, 3]);
+    /// ```
     pub fn remove<Q>(&mut self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q>,
@@ -527,6 +562,17 @@ where
 {
     /// Infallibly inserts `value` — available only when the backing store is
     /// [`Unbounded`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Set;
+    /// let mut s: Set<u32> = Set::default();
+    /// assert!(s.insert(2)); // newly added
+    /// assert!(!s.insert(2)); // already present
+    /// s.insert(1);
+    /// assert_eq!(s.as_slice(), &[1, 2]); // kept in order
+    /// ```
     pub fn insert(&mut self, value: S::Elem) -> bool {
         match self.try_insert(value) {
             Ok(b) => b,

@@ -140,6 +140,8 @@ pub use store::{Capped, ScratchVec, Spill, Unbounded};
 /// `SortedSet<ArrayVec<T, N>>` / `SortedSet<heapless::Vec<T, N>>` for a hard cap
 /// with no allocator.
 ///
+/// # Examples
+///
 /// ```
 /// use pouch::Set;
 /// let mut s: Set<u32> = Set::default();

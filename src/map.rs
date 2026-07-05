@@ -109,6 +109,14 @@ pub struct SortedMap<S> {
 
 impl<S: StoreNew> SortedMap<S> {
     /// Creates an empty `SortedMap`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Map;
+    /// let m: Map<&str, u32> = Map::new();
+    /// assert!(m.is_empty());
+    /// ```
     pub fn new() -> Self {
         SortedMap { store: S::new() }
     }
@@ -310,6 +318,16 @@ where
     /// `key` may be any borrowed form of `K` — a `SortedMap<Vec<(String, V)>>`
     /// answers `get("k")` without allocating a `String` to ask — with the usual
     /// [`Borrow`] contract that the borrowed form's `Ord` agrees with `K`'s.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Map;
+    /// let mut m: Map<&str, u32> = Map::default();
+    /// m.insert("a", 1);
+    /// assert_eq!(m.get("a"), Some(&1));
+    /// assert_eq!(m.get("z"), None);
+    /// ```
     pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
         K: Borrow<Q> + 'a,
@@ -397,6 +415,16 @@ where
     ///
     /// Order-preserving shift: `O(log n)` search, `O(n)` shift. `key` may be any borrowed
     /// form of `K`, like [`get`](Self::get).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Map;
+    /// let mut m: Map<&str, u32> = Map::default();
+    /// m.insert("a", 1);
+    /// assert_eq!(m.remove("a"), Some(1)); // returns the removed value
+    /// assert_eq!(m.remove("a"), None); // already gone
+    /// ```
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
@@ -411,6 +439,8 @@ where
     /// Resolves `key`'s slot **once** and returns an [`Entry`] for an
     /// insert-or-update, avoiding the second search a separate
     /// [`get`](Self::get) + [`try_insert`](Self::try_insert) would pay. `O(log n)`.
+    ///
+    /// # Examples
     ///
     /// ```
     /// use pouch::Map;
@@ -544,6 +574,16 @@ where
     /// the backing store is [`Unbounded`].
     ///
     /// The infallible twin of [`try_insert`](Self::try_insert).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pouch::Map;
+    /// let mut m: Map<&str, u32> = Map::default();
+    /// assert_eq!(m.insert("a", 1), None); // new key
+    /// assert_eq!(m.insert("a", 2), Some(1)); // replaced; previous value returned
+    /// assert_eq!(m.get("a"), Some(&2));
+    /// ```
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.try_insert(key, value) {
             Ok(prev) => prev,
