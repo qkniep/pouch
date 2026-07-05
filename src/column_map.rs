@@ -105,6 +105,10 @@ where
 /// The struct-of-arrays counterpart of [`UnsortedMap`](crate::UnsortedMap) — trades the
 /// `&[(K, V)]` view for a dense, value-free key scan (faster for large values; see the
 /// module docs). Needs only `K: Eq`.
+///
+/// Panicking key/value destructors are unsupported: the two columns are mutated in
+/// sequence, so a destructor that unwinds mid-mutation (in [`remove`](Self::remove),
+/// [`clear`](Self::clear), …) can leave them unequal length if the panic is caught.
 // Derives `Clone` but not `PartialEq`/`Eq` (nor `Hash`/`Ord`): correct map
 // equality is key-order-independent, yet swap-remove lets two equal maps store
 // their columns in different orders, so a structural derive would wrongly call
