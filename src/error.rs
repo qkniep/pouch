@@ -58,7 +58,8 @@ impl<T> std::error::Error for CapacityError<T> {}
 pub enum BuildError<T> {
     /// The store reached its logical capacity before every element was inserted.
     Capacity(T),
-    /// Two entries shared a key; the second one is handed back.
+    /// Two entries shared a key; one of the two is handed back (the later one, except
+    /// where an unstable sort has reordered them — see `SortedMap::try_from_iter`).
     DuplicateKey(T),
     /// `try_from_sorted_iter` was given input that was not in ascending order;
     /// the offending element (smaller than its predecessor) is handed back.

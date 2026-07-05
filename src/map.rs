@@ -466,14 +466,14 @@ where
     /// duplicate.
     ///
     /// Unlike a set's silent dedup, a map can't drop a duplicate key without arbitrarily
-    /// choosing which value to keep, so it errors instead (the second entry of the
-    /// clashing pair is handed back). For last-wins override semantics use
-    /// [`try_extend`](Self::try_extend) / `extend`.
+    /// choosing which value to keep, so it errors instead (one of the clashing entries is
+    /// handed back — the sort is unstable, so which of the two is unspecified). For
+    /// last-wins override semantics use [`try_extend`](Self::try_extend) / `extend`.
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::DuplicateKey`] with the second entry of a repeated key,
-    /// or [`BuildError::Capacity`] if a bounded store fills. As with the
+    /// Returns [`BuildError::DuplicateKey`] carrying one of the colliding entries of a
+    /// repeated key, or [`BuildError::Capacity`] if a bounded store fills. As with the
     /// set builder, entries are appended *before* the dedup/sort pass, so on a
     /// bounded backend a capacity overflow surfaces during the append even if the
     /// final unique map would fit.
