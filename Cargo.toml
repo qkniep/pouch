@@ -25,7 +25,8 @@ include = [
 ]
 
 # Build docs the way docs.rs does: all features, with `--cfg docsrs` so that
-# feature-specific docs can be gated behind `#[cfg_attr(docsrs, doc(cfg(...)))]`.
+# `#![cfg_attr(docsrs, feature(doc_cfg))]` in lib.rs adds the "available on
+# crate feature ..." banners to feature-gated items.
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
