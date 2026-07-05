@@ -55,6 +55,10 @@ impl<T> Store for ScratchVec<'_, T> {
 
 impl<T: Default> StoreMut for ScratchVec<'_, T> {
     fn try_insert_at(&mut self, i: usize, value: T) -> Result<(), CapacityError<T>> {
+        debug_assert!(
+            i <= self.len,
+            "try_insert_at: index out of bounds (can insert at most one past the end)",
+        );
         if self.len >= self.buf.len() {
             return Err(CapacityError(value));
         }
@@ -70,6 +74,10 @@ impl<T: Default> StoreMut for ScratchVec<'_, T> {
     }
 
     fn remove_at(&mut self, i: usize) -> T {
+        debug_assert!(
+            i < self.len,
+            "remove_at: index out of bounds (empty store has no element to remove)",
+        );
         // Rotate the element at `i` to the end of the live region, drop `len`, then
         // take it out — leaving a `default()` behind so the buffer stays fully
         // initialised.
