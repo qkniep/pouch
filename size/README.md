@@ -26,14 +26,21 @@ a *delta*: `measure.sh` builds `<family>,<family>_entry` and subtracts the plain
 `<family>` build, so the printed number is the marginal `.text` the `entry` surface
 adds over that collection's insert/get/remove (the shared slot lookup cancels).
 
-## Why it isn't a CI gate
+## CI checks the run, not the numbers
 
-Library code size is *probe-defined* (it depends on which types/backends/ops you
-measure, not just on pouch) and *toolchain-volatile* (rustc/LLVM inlining and
-`core`'s own codegen move it). A byte threshold would either be too loose to catch
-anything or flap red on every toolchain bump. The regressions worth catching are
-coarse step-changes (a whole helper like `ptr_rotate` getting pulled in), which are
-obvious the moment you run this. Treat the numbers as ballpark.
+CI (`no-std.yml`, job `size-harness`) runs this script on every PR, so the probe
+can't silently rot — it names pouch's public API directly, and a type rename or a
+backend-dependency major bump breaks it in ways the main crate's own CI never
+sees. Pass/fail is only "every variant builds and the script completes".
+
+The byte counts themselves are *not* gated. Library code size is *probe-defined*
+(it depends on which types/backends/ops you measure, not just on pouch) and
+*toolchain-volatile* (rustc/LLVM inlining and `core`'s own codegen move it). A
+byte threshold would either be too loose to catch anything or flap red on every
+toolchain bump. The regressions worth catching are coarse step-changes (a whole
+helper like `ptr_rotate` getting pulled in), which are obvious the moment you
+read the printed numbers — in the CI log or from a local run. Treat them as
+ballpark.
 
 Requirements: `rustup target add thumbv7em-none-eabihf` and
 `rustup component add llvm-tools` (both included in `just setup`).
