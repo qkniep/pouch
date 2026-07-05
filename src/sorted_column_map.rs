@@ -1030,7 +1030,6 @@ mod hetero_tests {
 #[cfg(all(test, feature = "std"))]
 mod drop_panic_tests {
     use std::borrow::Borrow;
-    use std::boxed::Box;
     use std::panic::{self, AssertUnwindSafe};
     use std::vec::Vec;
 
@@ -1079,12 +1078,9 @@ mod drop_panic_tests {
         )
         .unwrap();
 
-        // Swallow the armed key's panic message, then remove it via a plain `&i32`
-        // needle (which never drop-panics).
-        let prev = panic::take_hook();
-        panic::set_hook(Box::new(|_| {}));
+        // Remove the armed key via a plain `&i32` needle (which never drop-panics);
+        // its Drop panics mid-removal and we catch the unwind.
         let caught = panic::catch_unwind(AssertUnwindSafe(|| m.remove(&1)));
-        panic::set_hook(prev);
         assert!(caught.is_err(), "the armed key's Drop must panic");
 
         // The invariant: the key drops only *after* both columns are shifted, so the
