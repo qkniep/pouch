@@ -33,10 +33,36 @@ use crate::error::CapacityError;
 /// assert_eq!(inflight.len(), 3);
 /// assert_eq!(shed, [3, 4]);
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Capped<S> {
     inner: S,
     cap: usize,
+}
+
+// Equality is manual, over `as_slice()` — the *logical* contents — not the
+// struct fields: the `cap` is a construction-time knob, not content. A
+// structural derive would compare `cap`, calling two capped stores holding the
+// same elements but built with different caps unequal, breaking the Store
+// contract (`Eq` must agree with `as_slice()`, see the trait docs) that the
+// collection derives (`SortedSet<Capped<…>>: Eq`) rely on. `Capped` is not
+// `Unbounded`, so — unlike `Spill` — it needs no `Ord`/`Hash` (the sorted
+// collections never key on a capped store), and the inner `S` may not have
+// them anyway.
+impl<S> PartialEq for Capped<S>
+where
+    S: Store,
+    S::Elem: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<S> Eq for Capped<S>
+where
+    S: Store,
+    S::Elem: Eq,
+{
 }
 
 impl<S> Capped<S> {
@@ -165,6 +191,21 @@ mod tests {
         // the inner backend's own bound is the tighter one
         let loose: Capped<Vec<u8, 2>> = Capped::with_capacity(5);
         assert_eq!(loose.capacity(), Some(2));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn eq_ignores_cap_agreeing_with_as_slice() {
+        use alloc::vec;
+        use alloc::vec::Vec;
+        // Same contents, different caps → equal. The Store contract requires
+        // `Eq` to agree with `as_slice()`; the cap is not content.
+        let a: Capped<Vec<u8>> = Capped::from_store(vec![1, 2, 3], 3);
+        let b: Capped<Vec<u8>> = Capped::from_store(vec![1, 2, 3], 9);
+        assert_eq!(a, b);
+        // Different contents stay unequal regardless of cap.
+        let c: Capped<Vec<u8>> = Capped::from_store(vec![1, 2], 9);
+        assert_ne!(a, c);
     }
 
     #[cfg(feature = "alloc")]
