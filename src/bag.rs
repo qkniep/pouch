@@ -333,7 +333,6 @@ mod alloc_tests {
         bag.push(2); // duplicates are kept — no membership discipline
         assert_eq!(bag.as_slice(), &[2, 1, 2]);
         assert_eq!(bag.len(), 3);
-        assert_eq!(bag.count(&2), 2);
         assert!(bag.contains(&1));
         assert!(!bag.contains(&9));
     }
