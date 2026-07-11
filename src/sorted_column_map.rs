@@ -592,6 +592,40 @@ where
     }
 }
 
+impl<K, V, SK, SV> SortedColumnMap<SK, SV>
+where
+    SK: StoreMut<Elem = K> + StoreNew + Unbounded,
+    SV: StoreMut<Elem = V> + StoreNew + Unbounded,
+    K: Ord,
+{
+    /// Builds from an ascending iterator — the infallible
+    /// [`try_from_sorted_iter`](Self::try_from_sorted_iter), available only when **both**
+    /// columns are [`Unbounded`]. `O(n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the keys are not in ascending order or a key repeats — an
+    /// infallible builder has no error channel, and a map cannot silently pick
+    /// which duplicate value wins.
+    pub fn from_sorted_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        match Self::try_from_sorted_iter(iter) {
+            Ok(map) => map,
+            Err(BuildError::Capacity(_)) => {
+                unreachable!("Unbounded columns reported a capacity failure")
+            }
+            Err(BuildError::DuplicateKey(_)) => {
+                panic!("from_sorted_iter: duplicate key")
+            }
+            Err(BuildError::Unsorted(_)) => {
+                panic!("from_sorted_iter: keys were not in ascending order")
+            }
+        }
+    }
+}
+
 impl<'a, K, V, SK, SV> IntoIterator for &'a SortedColumnMap<SK, SV>
 where
     SK: Store<Elem = K>,
@@ -663,6 +697,25 @@ mod alloc_tests {
         assert_eq!(m.keys(), &[1, 2, 3]);
         assert_eq!(m.get(&2), Some(&"B"));
         assert_eq!(m.get(&3), Some(&"c"));
+    }
+
+    #[test]
+    fn from_sorted_iter_builds_in_order() {
+        let m = SortedColumnMap::<Vec<i32>, Vec<&str>>::from_sorted_iter([(1, "a"), (2, "b")]);
+        assert_eq!(m.keys(), &[1, 2]);
+        assert_eq!(m.values(), &["a", "b"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate key")]
+    fn from_sorted_iter_panics_on_duplicate_key() {
+        let _ = SortedColumnMap::<Vec<i32>, Vec<&str>>::from_sorted_iter([(1, "a"), (1, "z")]);
+    }
+
+    #[test]
+    #[should_panic(expected = "ascending order")]
+    fn from_sorted_iter_panics_on_unsorted_keys() {
+        let _ = SortedColumnMap::<Vec<i32>, Vec<&str>>::from_sorted_iter([(2, "b"), (1, "a")]);
     }
 
     #[test]
