@@ -125,6 +125,7 @@ impl<S: StoreMut> Bag<S> {
     ///
     /// A bag has no invariant, so arbitrary mutation (reorder, overwrite) is always
     /// valid.
+    #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
     }

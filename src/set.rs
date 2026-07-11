@@ -247,10 +247,12 @@ impl<S: Store> SortedSet<S> {
         self.store.as_slice().iter()
     }
     /// Returns the smallest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first(&self) -> Option<&S::Elem> {
         self.store.as_slice().first()
     }
     /// Returns the largest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last(&self) -> Option<&S::Elem> {
         self.store.as_slice().last()
     }
@@ -304,6 +306,7 @@ impl<S: Store> SortedSet<S> {
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded — matching `BTreeSet::range`, and independent of the set's
     /// contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> &[S::Elem]
     where
         S::Elem: Borrow<Q> + Ord,
