@@ -26,6 +26,24 @@ pub(crate) fn subrange_indices<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
     range: R,
     key: impl Fn(&T) -> &Q,
 ) -> core::ops::Range<usize> {
+    // Validate the bounds against *each other* before resolving them to indices,
+    // as `BTreeMap::range` does. Resolving first and letting the `start..end`
+    // slice index panic is data-dependent: an inverted range like `5..2` lands
+    // `start <= end` (silently empty) or `start > end` (a raw slice-index panic
+    // naming no API) depending on which elements happen to sit between the
+    // bounds. Comparing the bounds directly panics deterministically.
+    match (range.start_bound(), range.end_bound()) {
+        (Bound::Excluded(s), Bound::Excluded(e)) if s == e => {
+            panic!("range start and end are equal and excluded")
+        }
+        (Bound::Included(s) | Bound::Excluded(s), Bound::Included(e) | Bound::Excluded(e))
+            if s > e =>
+        {
+            panic!("range start is greater than range end")
+        }
+        _ => {}
+    }
+
     let start = match range.start_bound() {
         Bound::Unbounded => 0,
         Bound::Included(q) => slice.partition_point(|e| key(e) < q),
@@ -48,8 +66,8 @@ pub(crate) fn subrange<T, Q: Ord + ?Sized, R: RangeBounds<Q>>(
     range: R,
     key: impl Fn(&T) -> &Q,
 ) -> &[T] {
-    // An inverted range (start > end) falls through to the slice indexing
-    // panic, mirroring `BTreeMap::range`.
+    // `subrange_indices` has already rejected an inverted range with a clear
+    // panic (mirroring `BTreeMap::range`), so this index cannot be out of order.
     &slice[subrange_indices(slice, range, key)]
 }
 
@@ -276,7 +294,9 @@ impl<S: Store> SortedSet<S> {
     ///
     /// # Panics
     ///
-    /// Panics if the range's start is greater than its end.
+    /// Panics if the range's start is greater than its end, or if the bounds are equal
+    /// and both excluded — matching `BTreeSet::range`, and independent of the set's
+    /// contents.
     pub fn range<Q, R>(&self, range: R) -> &[S::Elem]
     where
         S::Elem: Borrow<Q> + Ord,
@@ -1196,6 +1216,19 @@ mod alloc_tests {
     #[should_panic(expected = "not in ascending order")]
     fn from_sorted_iter_panics_on_unsorted() {
         let _ = SortedSet::<Vec<i32>>::from_sorted_iter([1, 3, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "range start is greater than range end")]
+    // The inverted range is the whole point of the test.
+    #[allow(clippy::reversed_empty_ranges)]
+    fn range_inverted_bounds_panic_regardless_of_contents() {
+        // Nothing sits in `[2, 5)` here, so resolving the bounds to indices
+        // first produced an equal (empty) index range that silently returned
+        // `[]`; the up-front bound check now panics deterministically, matching
+        // `BTreeSet::range`, whatever the contents.
+        let s: SortedSet<Vec<i32>> = SortedSet::from_sorted_iter([1, 9]);
+        let _ = s.range(5..2);
     }
 
     #[test]
