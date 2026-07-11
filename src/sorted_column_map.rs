@@ -388,6 +388,10 @@ where
     /// so can never fail — only a genuinely new key at the bound errors. `O(log n)`
     /// search, `O(n)` shift to make room (or `O(1)` to replace in place).
     ///
+    /// **Not std's `try_insert`**: `try_` marks capacity-fallibility, not a vacancy check
+    /// — this replaces on a duplicate key. See
+    /// [`SortedMap::try_insert`](crate::SortedMap::try_insert).
+    ///
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the
