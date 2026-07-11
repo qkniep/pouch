@@ -27,12 +27,9 @@ unchanged on `no_std` and embedded targets.
 
 > [!NOTE]
 > **Early days — the API is not yet stable.** The store traits are still
-> settling; expect breaking changes between 0.x releases. The collection layer, meanwhile,
-> is filling in: bulk constructors, an `Entry` API, std-style borrowed-key
-> lookups (`map.get("k")` on a `Map<String, _>` — no allocation to ask),
-> merge-based set algebra (`union` / `is_subset` / …), `store()` / `reserve()`
-> for backend introspection and preallocation, `Hash`/`Ord` on the sorted
-> flavors (so a set can key another map), and `serde` behind a feature.
+> settling; expect breaking changes between 0.x releases. The collection layer
+> is filling in: bulk constructors, an `Entry` API, borrowed-key lookups, set
+> algebra, `Hash`/`Ord` on the sorted flavors, and `serde` behind a feature.
 > Comparators are next.
 
 ## Design
@@ -61,14 +58,9 @@ invariant-free shape rounds out the lineup: `Bag`, a `Vec`-like sequence
 **Struct-of-arrays layout (`soa` feature: `UnsortedColumnMap` / `SortedColumnMap`).**
 A map can instead keep keys and values in *two* parallel stores, so a lookup scans
 (`UnsortedColumnMap`) or binary-searches (`SortedColumnMap`) a dense key column
-without dragging values through cache. `UnsortedColumnMap`'s scan also *vectorizes* —
-`get` and `contains_key` fold to branchless compares the strided `(K, V)` scan
-can't manage, a ~2× edge on misses and long scans at **any** value size — and for
-**large values** the skipped value-column cache traffic stacks on top (a saving
-`SortedColumnMap`'s binary search shares, though it has no scan to vectorize).
-Still niche enough that the array-of-structs `UnsortedMap` / `SortedMap` stay the
-default; reach for a column map when lookups dominate, especially with big values.
-See [Benchmarks](#benchmarks).
+without dragging values through cache. Niche enough that the array-of-structs
+`UnsortedMap` / `SortedMap` stay the default; reach for a column map when lookups
+dominate, especially with big values. See [Benchmarks](#benchmarks).
 
 ## Complexity
 
@@ -117,12 +109,10 @@ store via `CapacityError<T>`. When the backing store is genuinely unbounded
 (`Vec`, `SmallVec`, `TinyVec`), an infallible `insert` is also available.
 
 **When you care about nanoseconds:** hybrid stores (`SmallVec`, `TinyVec`,
-`Spill`) pay a well-predicted "inline or heap?" branch on every access to find
-their elements — for a read-hot collection with a hard small bound,
-`SortedSet<ArrayVec<T, N>>` skips it. For build-once-query-forever tables,
-bulk-build, wrap an already-sorted `Vec` with `from_store`, or use
-`SliceSet`/`SliceMap` over a `static` sorted table. `Capped` reads for free
-(the cap is checked only on insert). If you haven't measured, the default
+`Spill`) pay a well-predicted "inline or heap?" branch on every access;
+`SortedSet<ArrayVec<T, N>>` skips it for a read-hot collection with a hard small
+bound, and `SliceSet`/`SliceMap` over a `static` sorted table is unbeatable for
+build-once-query-forever lookups. If you haven't measured, the default
 `Set`/`Map` are right.
 
 ## Example
@@ -144,16 +134,6 @@ adjacency[0].insert(7);
 adjacency[0].insert(3);
 ```
 
-Build a sorted collection in bulk instead of inserting one at a time — `O(n log n)`,
-or `O(n)` from already-sorted input:
-
-```rust
-use pouch::SortedSet;
-
-let s: SortedSet<Vec<u32>> = SortedSet::try_from_iter([3, 1, 2, 3, 1]).unwrap(); // sorts + dedups once
-assert_eq!(s.as_slice(), &[1, 2, 3]);
-```
-
 Insert-or-update a map value in a single lookup with the `Entry` API, instead of a
 separate `get` then `insert`:
 
@@ -165,20 +145,6 @@ for word in ["a", "b", "a", "a"] {
     *counts.entry(word).or_insert(0) += 1; // one search per word, not two
 }
 assert_eq!(counts.get("a"), Some(&3));
-```
-
-Sorted sets come with merge-based algebra — `O(n + m)` walks over the sorted
-slices, no allocation, results in ascending order, and the other set may even
-use a different backend:
-
-```rust
-use pouch::Set;
-
-let a: Set<u32> = [1, 2, 3].into_iter().collect();
-let b: Set<u32> = [2, 3, 4].into_iter().collect();
-assert!(a.intersection(&b).eq(&[2, 3]));
-assert!(a.union(&b).eq(&[1, 2, 3, 4]));
-assert!(!a.is_subset(&b));
 ```
 
 Fixed-capacity backends (and any store wrapped in `Capped`) make insertion
@@ -196,17 +162,10 @@ assert_eq!(s.try_insert(9), Ok(true));
 assert!(s.try_insert(2).is_err());
 ```
 
-Use the unsorted variants for `O(1)` insert/delete (append + swap-remove) when
-elements are cheap to scan or aren't `Ord`:
-
-```rust
-use pouch::UnsortedSet;
-
-let mut s: UnsortedSet<Vec<&str>> = UnsortedSet::new();
-s.insert("hello");
-s.insert("world");
-assert!(s.remove("hello")); // swap-remove; order is not preserved
-```
+Also available: bulk constructors (`try_from_iter` sorts + dedups once,
+`from_sorted_iter` skips the sort), merge-based set algebra (`union` /
+`intersection` / `is_subset`, `O(n + m)` and cross-backend), and the `Unsorted`
+variants (`O(1)` append + swap-remove for elements cheap to scan or not `Ord`).
 
 ## Benchmarks
 
@@ -232,60 +191,19 @@ Two honest caveats: `N` is a memory knob — `N=4` (tuned to the 1–4 body) is 
 between. And the lookup win is the *sorted-small-set* property (both pouch backends
 have it), not inline specifically — inline's unique, decisive win is allocation count.
 
-Single-collection view — map, `n = 64`, `u64` keys:
-
-| op           | pouch Sorted | litemap | BTreeMap | HashMap | FxHashMap |
-| ------------ | ------------ | ------- | -------- | ------- | --------- |
-| build random | 250 ns       | 1.27 µs | 510 ns   | 531 ns  | **229 ns**|
-| get (hit)    | 183 ns       | 213 ns  | 224 ns   | 398 ns  | **73 ns** |
-| get (miss)   | 183 ns       | 213 ns  | 259 ns   | 317 ns  | **102 ns**|
-
-Set iteration (sum) — contiguous storage is the standout:
-
-| n    | pouch Sorted | BTreeSet | HashSet |
-| ---- | ------------ | -------- | ------- |
-| 256  | **13 ns**    | 820 ns   | 130 ns  |
-| 1024 | **58 ns**    | 3.28 µs  | 562 ns  |
-
-Struct-of-arrays — `SortedColumnMap` (SoA, dense key column) vs `SortedMap` (AoS),
-`u64` keys, median for a batch of `n` lookups (`SortedMap` / **`SortedColumnMap`**):
-
-| op           | value | n = 16            | n = 4096            |
-| ------------ | ----- | ----------------- | ------------------- |
-| `get` hit    | 8 B   | **27 ns** / 33 ns | 29.5 µs / **22.8 µs** |
-| `get` hit    | 64 B  | **31 ns** / 33 ns | 40.1 µs / **26.0 µs** |
-| `get` miss   | 8 B   | 28 ns / **21 ns** | 29.0 µs / **20.8 µs** |
-| `get` miss   | 64 B  | 30 ns / **23 ns** | 42.1 µs / **20.8 µs** |
-
-The split wins at scale and on misses — the search skips the value column entirely
-(up to ~2× for 64-byte misses). The catch is small-`n` *hits*: fetching the value
-from its separate column is a second cache line, so `SortedMap` (value beside the key)
-leads there. Hence `SortedColumnMap` is for large values + key-ordered iteration +
-lookup-heavy; otherwise `SortedMap`.
-
-`build random` uses the bulk `try_from_iter` constructor; the strategy breakdown
-(insert-loop vs `try_from_iter` vs `from_sorted_iter`) is in [BENCHMARKS.md](BENCHMARKS.md).
-
-What the numbers say:
+Beyond the headline, [BENCHMARKS.md](BENCHMARKS.md) covers single-collection maps,
+set iteration, the SoA column maps, bulk-construction strategies, and a backend
+sweep. The short version:
 
 - **Nested populations are the win** (table above): inline storage collapses a
-  population of small sets to ~one allocation, which `Vec<HashSet>` / thincollections
-  can't — they allocate per inner set regardless.
-- **Parity with litemap** on the shared sorted-Vec design — the backend-generic
-  layer costs nothing.
-- **vs std:** flat binary search beats `BTreeMap` and SipHash `HashMap` on lookups;
-  a fast hasher (`FxHashMap`) overtakes it past `n ≈ 16` on lookups and on random-order
-  `build`, but the bulk constructors close most of the build gap — and from
-  already-sorted input pouch builds *fastest* at large `n`. A sorted `Vec` is the
-  small-`n`, iteration-heavy, or `no_std` choice.
-- **Bulk construction:** `try_from_iter` (sort once) and `from_sorted_iter` (no sort)
-  beat an `insert`-per-element loop by ~8× and ~58× at `n = 1024` — a 1024-key sorted
-  set builds in ~0.67 µs from sorted input vs ~39 µs one at a time. (Both builders
-  now `reserve` up front from `size_hint`, worth ~25% on the sorted path alone.)
-- **Iteration** over contiguous memory runs ~10–50× faster than the tree/hash maps.
-- **Backend choice moves only the constant:** at `n = 16` an inline `ArrayVec` /
-  `heapless` builds a sorted set in ~140 ns vs `Vec`'s ~195 ns (the heap allocation);
-  by `n = 256` they converge.
+  population of small sets to ~one allocation, which `Vec<HashSet>` /
+  thincollections can't — they allocate per inner set regardless.
+- **Parity with litemap** on the shared sorted-`Vec` design — the backend-generic
+  layer costs nothing; flat binary search beats `BTreeMap` and SipHash `HashMap` on
+  lookups, while a fast hasher (`FxHashMap`) overtakes past `n ≈ 16`.
+- **Bulk construction** (`try_from_iter` / `from_sorted_iter`) beats an insert-loop
+  by ~8× / ~58× at `n = 1024`, and **iteration** over contiguous memory runs
+  ~10–50× faster than the tree/hash maps.
 
 ## Crate features
 
