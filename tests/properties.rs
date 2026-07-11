@@ -529,6 +529,22 @@ fn algebra_case(a: &[u8], b: &[u8]) {
     let stds: Vec<u8> = oa.symmetric_difference(&ob).copied().collect();
     assert_eq!(ours, stds, "symmetric_difference");
 
+    // Swapped operands drive the size-adaptive Search path in both directions:
+    // intersection orients to whichever side is smaller, and difference searches
+    // only when the *kept* side is the smaller one (so `sb.difference(&sa)` with a
+    // lopsided `|a| ≫ |b|` is the case the plain `sa.difference(&sb)` never hits).
+    let ours: Vec<u8> = sb.intersection(&sa).copied().collect();
+    let stds: Vec<u8> = ob.intersection(&oa).copied().collect();
+    assert_eq!(ours, stds, "intersection (swapped)");
+    let ours: Vec<u8> = sb.difference(&sa).copied().collect();
+    let stds: Vec<u8> = ob.difference(&oa).copied().collect();
+    assert_eq!(ours, stds, "difference (swapped)");
+
+    // `min()` is overridden to a single step; it must still equal the drained min.
+    assert_eq!(sa.intersection(&sb).min(), oa.intersection(&ob).min());
+    assert_eq!(sa.difference(&sb).min(), oa.difference(&ob).min());
+    assert_eq!(sb.difference(&sa).min(), ob.difference(&oa).min());
+
     assert_eq!(sa.is_subset(&sb), oa.is_subset(&ob));
     assert_eq!(sb.is_subset(&sa), ob.is_subset(&oa));
     assert_eq!(sa.is_superset(&sb), oa.is_superset(&ob));

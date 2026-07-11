@@ -247,10 +247,12 @@ impl<S: Store> SortedSet<S> {
         self.store.as_slice().iter()
     }
     /// Returns the smallest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first(&self) -> Option<&S::Elem> {
         self.store.as_slice().first()
     }
     /// Returns the largest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last(&self) -> Option<&S::Elem> {
         self.store.as_slice().last()
     }
@@ -304,6 +306,7 @@ impl<S: Store> SortedSet<S> {
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded — matching `BTreeSet::range`, and independent of the set's
     /// contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> &[S::Elem]
     where
         S::Elem: Borrow<Q> + Ord,
@@ -1162,6 +1165,32 @@ mod alloc_tests {
         assert_eq!(a.intersection(&b).clone().count(), 1);
         assert_eq!(a.difference(&b).clone().count(), 2);
         assert_eq!(a.symmetric_difference(&b).clone().count(), 3);
+    }
+
+    // Intersection/difference tip to per-element binary probing once a side is
+    // ≥16× smaller (the headline SliceSet-flash-table case). Cross the threshold
+    // by a wide margin so the Search path — not the merge — runs, in both
+    // orientations, and confirm it still yields the exact ascending result.
+    #[test]
+    fn set_algebra_is_size_adaptive() {
+        let big: SortedSet<Vec<u32>> = (0..1_000).collect();
+        let small: SortedSet<Vec<u32>> = [3, 500, 997, 1_500].into_iter().collect();
+
+        // Intersection is symmetric — both orientations select the Search path.
+        assert!(small.intersection(&big).eq(&[3, 500, 997]));
+        assert!(big.intersection(&small).eq(&[3, 500, 997]));
+
+        // Difference searches only when the *kept* side is the smaller one.
+        assert!(small.difference(&big).eq(&[1_500]));
+        // The other direction (big \ small) has no small kept side → merge path.
+        assert_eq!(big.difference(&small).count(), 997);
+
+        // The `min()` override returns the first element without draining.
+        assert_eq!(small.intersection(&big).min(), Some(&3));
+        assert_eq!(small.difference(&big).min(), Some(&1_500));
+        assert_eq!(big.difference(&small).min(), Some(&0));
+        let disjoint: SortedSet<Vec<u32>> = [2_000, 3_000].into_iter().collect();
+        assert_eq!(small.intersection(&disjoint).min(), None);
     }
 
     // The sorted flavor derives `PartialOrd`/`Ord`/`Hash` off its canonical
