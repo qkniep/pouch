@@ -1,0 +1,109 @@
+# Declarative label set, synced to the repo by the labeler workflow (.github/workflows/labeler.yml).
+# Edit here, not in the GitHub UI, so the labels stay version-controlled.
+#
+# Labels are grouped by a `prefix:` so they sort and filter together:
+#   type:      what kind of change/issue it is
+#   priority:  urgency of the change
+#   area:      which part of the codebase it touches
+#   status:    current position in the workflow
+# `good first issue` and `help wanted` stay unprefixed: GitHub treats those
+# specially (they power the repo's contribute page and issue filters).
+#
+# Colors are from Open Color (https://yeun.github.io/open-color).
+
+# --- type: nature of the change/issue -----------------------------------------
+- name: "type: bug"           # Used by issue template
+  color: "fa5252"  # red 6
+  description: Something isn't working
+- name: "type: feature"       # Used by issue template
+  color: "8ce99a"  # green 3
+  description: New capability or request
+- name: "type: enhancement"
+  color: "66d9e8"  # cyan 3
+  description: Improvement to existing functionality
+- name: "type: docs"
+  color: "a5d8ff"  # blue 2
+  description: Documentation
+- name: "type: refactor"
+  color: "eebefa"  # grape 2
+  description: Code change that neither fixes a bug nor adds a feature
+- name: "type: performance"
+  color: "ffe066"  # yellow 3
+  description: Performance or optimization work
+- name: "type: test"
+  color: "d0bfff"  # violet 2
+  description: Tests and test infrastructure
+- name: "type: dependencies"  # Used by Dependabot
+  color: "91a7ff"  # indigo 3
+  description: Dependency updates
+- name: "type: chore"
+  color: "dee2e6"  # gray 3
+  description: Maintenance, tooling, and housekeeping
+- name: "type: question"
+  color: "faa2c1"  # pink 3
+  description: A question or request for support
+
+# --- priority: urgency (red -> green) -----------------------------------------
+- name: "priority: critical"
+  color: "c92a2a"  # red 9
+  description: Urgent — needs attention right away
+- name: "priority: high"
+  color: "f76707"  # orange 7
+  description: Should be addressed soon
+- name: "priority: medium"
+  color: "fab005"  # yellow 6
+  description: Normal priority
+- name: "priority: low"
+  color: "40c057"  # green 6
+  description: Nice to have; no rush
+
+# --- area: which part of the codebase -----------------------------------------
+- name: "area: core"
+  color: "96f2d7"  # teal 2
+  description: Core library logic
+- name: "area: api"
+  color: "96f2d7"  # teal 2
+  description: Public API surface
+- name: "area: build"
+  color: "96f2d7"  # teal 2
+  description: Build, packaging, and Cargo metadata
+- name: "area: ci"
+  color: "96f2d7"  # teal 2
+  description: CI workflows and automation
+
+# --- status: position in the workflow -----------------------------------------
+- name: "status: needs-triage"
+  color: "ffa94d"  # orange 4
+  description: Awaiting initial review and triage
+- name: "status: needs-info"
+  color: "ffd43b"  # yellow 4
+  description: Blocked on more information from the reporter
+- name: "status: blocked"
+  color: "f03e3e"  # red 7
+  description: Blocked by another issue or an external factor
+- name: "status: in-progress"
+  color: "51cf66"  # green 5
+  description: Actively being worked on
+- name: "status: duplicate"
+  color: "ced4da"  # gray 4
+  description: Already tracked elsewhere
+- name: "status: wontfix"
+  color: "adb5bd"  # gray 5
+  description: This will not be worked on
+- name: "status: invalid"
+  color: "868e96"  # gray 6
+  description: Not a valid issue or not reproducible
+
+# --- meta / community ---------------------------------------------------------
+- name: "security"
+  color: "e8590c"  # orange 8
+  description: Security hardening
+- name: "breaking-change"
+  color: "e03131"  # red 8
+  description: Introduces a backwards-incompatible (SemVer-major) change
+- name: "good first issue"
+  color: "7950f2"  # violet 6
+  description: Good for newcomers
+- name: "help wanted"
+  color: "099268"  # teal 8
+  description: Open for community contributions
