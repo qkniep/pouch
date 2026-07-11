@@ -24,8 +24,9 @@
 //!     [`values`](UnsortedColumnMap::values) slices;
 //!   * [`from_store`](UnsortedColumnMap::from_store) takes two stores (no zero-copy wrap
 //!     of an existing `Vec<(K, V)>`);
-//!   * two backends to name, and the effective [`capacity`](UnsortedColumnMap::capacity)
-//!     is the `min` of the two columns' bounds.
+//!   * two backends to name, and the effective
+//!     [`max_capacity`](UnsortedColumnMap::max_capacity) is the `min` of the two columns'
+//!     bounds.
 //!
 //! [`SortedColumnMap`](crate::SortedColumnMap) is the sorted twin (the same
 //! two-store layout, keys kept ordered for an `O(log n)` binary search). It
@@ -252,8 +253,8 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     /// (`None` = unbounded).
     ///
     /// Capping either column caps the map.
-    pub fn capacity(&self) -> Option<usize> {
-        combined_capacity(self.keys.capacity(), self.values.capacity())
+    pub fn max_capacity(&self) -> Option<usize> {
+        combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
     /// Returns the keys as a contiguous slice — the dense scan target.
     ///
@@ -472,7 +473,7 @@ where
     /// The columns are length-locked, so a single pre-check against the combined bound
     /// guarantees both pushes below succeed — no half-insert, no rollback.
     fn push_entry(&mut self, key: K, value: V) -> Result<(), CapacityError<(K, V)>> {
-        if let Some(cap) = self.capacity() {
+        if let Some(cap) = self.max_capacity() {
             if self.keys.len() >= cap {
                 return Err(CapacityError((key, value)));
             }

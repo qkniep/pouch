@@ -48,7 +48,7 @@ impl<T> Store for ScratchVec<'_, T> {
     fn as_slice(&self) -> &[T] {
         &self.buf[..self.len]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         Some(self.buf.len())
     }
 }
@@ -132,7 +132,7 @@ mod tests {
     fn capacity_is_the_buffer_length() {
         let mut buf = [0u8; 4];
         let v = ScratchVec::new(&mut buf);
-        assert_eq!(v.capacity(), Some(4));
+        assert_eq!(v.max_capacity(), Some(4));
         assert!(v.is_empty());
     }
 

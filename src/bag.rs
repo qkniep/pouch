@@ -81,8 +81,8 @@ impl<S: Store> Bag<S> {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
-    pub fn capacity(&self) -> Option<usize> {
-        self.store.capacity()
+    pub fn max_capacity(&self) -> Option<usize> {
+        self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in insertion order.
     pub fn as_slice(&self) -> &[S::Elem] {

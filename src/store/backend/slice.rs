@@ -1,6 +1,6 @@
 //! `&[T]` / `&[T; N]`: a borrowed, **read-only** backend. Implements `Store`
 //! only — never `StoreMut` / `StoreNew` / `Unbounded` — so it backs lookups
-//! (`contains` / `get`) but no mutation. `capacity()` is `Some(len)`: a borrowed
+//! (`contains` / `get`) but no mutation. `max_capacity()` is `Some(len)`: a borrowed
 //! slice can never grow, so it is permanently at capacity, holding exactly its
 //! elements. The `&[T; N]` impl is the same backend over an array reference, so a
 //! `static [_; N]` table wraps directly as `&TABLE` (no `[..]`).
@@ -24,7 +24,7 @@ impl<T> Store for &[T] {
     fn as_slice(&self) -> &[T] {
         &self[..]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         // A borrowed slice can never grow: it is permanently full, holding
         // exactly its current elements, so cap == len.
         Some(self.len())
@@ -38,7 +38,7 @@ impl<T, const N: usize> Store for &[T; N] {
     fn as_slice(&self) -> &[T] {
         &self[..]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         Some(N) // statically full at the array's length
     }
 }
@@ -59,18 +59,18 @@ mod tests {
         assert_eq!(xs.len(), 3);
         assert!(!xs.is_empty());
         // A borrowed slice is permanently full: cap == len.
-        assert_eq!(Store::capacity(&xs), Some(3));
+        assert_eq!(Store::max_capacity(&xs), Some(3));
 
         let empty: &[u32] = &[];
         assert!(empty.is_empty());
-        assert_eq!(Store::capacity(&empty), Some(0));
+        assert_eq!(Store::max_capacity(&empty), Some(0));
     }
 
     #[test]
     fn read_only_array_ref_reports_const_capacity() {
         let xs: &[u32; 3] = &[10, 20, 30];
         assert_eq!(Store::as_slice(&xs), &[10, 20, 30]);
-        assert_eq!(Store::capacity(&xs), Some(3));
+        assert_eq!(Store::max_capacity(&xs), Some(3));
     }
 
     #[test]
@@ -79,7 +79,7 @@ mod tests {
         let from_array = SortedSet::from_store(&[1u32, 2, 3]);
         assert!(from_array.contains(&2));
         assert!(!from_array.contains(&4));
-        assert_eq!(from_array.capacity(), Some(3)); // permanently full
+        assert_eq!(from_array.max_capacity(), Some(3)); // permanently full
 
         let from_slice = SortedSet::from_store(&[1u32, 2, 3][..]);
         assert!(from_slice.contains(&2));

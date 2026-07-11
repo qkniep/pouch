@@ -11,7 +11,7 @@ impl<T, const N: usize> Store for ArrayVec<T, N> {
     fn as_slice(&self) -> &[T] {
         &self[..]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         Some(N)
     }
 }

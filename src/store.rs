@@ -46,10 +46,14 @@ pub trait Store {
         self.as_slice().is_empty()
     }
 
-    /// Returns the logical capacity.
+    /// Returns the logical capacity: the maximum number of elements the store can
+    /// ever hold, or `None` if unbounded (limited only by allocator OOM).
     ///
-    /// `None` == unbounded (limited only by allocator OOM).
-    fn capacity(&self) -> Option<usize>;
+    /// A *bound*, not a spare-room figure — deliberately distinct from the inherent
+    /// `capacity()` on growable backends (`Vec`/`SmallVec`), which reports current
+    /// allocation and grows on demand. `Vec`/`SmallVec` report `None` here; fixed-cap
+    /// backends (`ArrayVec`, `heapless::Vec`) and `Capped` report `Some`.
+    fn max_capacity(&self) -> Option<usize>;
 }
 
 /// Mutation primitives.
@@ -112,13 +116,13 @@ pub trait StoreMut: Store {
     /// as spikes mid-burst.
     ///
     /// The promise is about *reallocation*, not logical capacity (that's
-    /// [`capacity`](Store::capacity) / [`CapacityError`]), so the default no-op is
-    /// exactly right for stores that never reallocate — fixed-capacity (`ArrayVec`,
-    /// `heapless::Vec`) and borrowed ([`ScratchVec`]) backends satisfy it trivially.
-    /// Growable backends (`Vec`, `SmallVec`, `TinyVec`) override it with their native
-    /// `reserve`; [`Capped`] clamps the request to its remaining logical headroom;
-    /// [`Spill`] pre-arms its spill tier when the projected length overflows the inline
-    /// tier.
+    /// [`max_capacity`](Store::max_capacity) / [`CapacityError`]), so the default no-op
+    /// is exactly right for stores that never reallocate — fixed-capacity
+    /// (`ArrayVec`, `heapless::Vec`) and borrowed ([`ScratchVec`]) backends satisfy
+    /// it trivially. Growable backends (`Vec`, `SmallVec`, `TinyVec`) override it
+    /// with their native `reserve`; [`Capped`] clamps the request to its remaining
+    /// logical headroom; [`Spill`] pre-arms its spill tier when the projected length
+    /// overflows the inline tier.
     fn reserve(&mut self, additional: usize) {
         let _ = additional;
     }

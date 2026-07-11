@@ -123,7 +123,7 @@ set-algebra, bulk-builder, and serde-policy properties. A new backend earns its
 correctness argument with one line in the `store_contract!` list; do **not**
 add per-backend collection instantiations — those are one per *behavior class*
 ({unbounded, bounded} × {sorted, unsorted}, plus a single suite-wide hybrid
-spill-crossing instance — a hybrid reports `capacity() == None`, so it's the
+spill-crossing instance — a hybrid reports `max_capacity() == None`, so it's the
 unbounded case to collection code), because the collection layer is generic
 over `Store` and can't vary by backend. Example tests (the
 unit modules and `smoke.rs`) deliberately cover only what the harness doesn't
@@ -142,7 +142,7 @@ separate when extending:
 
 1. **Storage** — *where* elements live (heap / inline / hybrid). This is the `Store` /
    `StoreMut` / `StoreNew` trait family, implemented once per backend.
-2. **Bound** — the max logical element count, exposed as `Store::capacity() -> Option<usize>`
+2. **Bound** — the max logical element count, exposed as `Store::max_capacity() -> Option<usize>`
    (`None` = unbounded). A runtime bound is added orthogonally via the `Capped<S>` wrapper,
    *not* per backend.
 3. **Ordering** — sorted vs unsorted. This lives in the **collection** layer, never in
@@ -170,7 +170,7 @@ value payloads through cache, a bandwidth saving ≈ proportional to `sizeof(V)/
 that stacks on top for large values once the map outgrows cache (a further ~2× for 64-byte
 values at `n ≥ 4k`). The cost is paid in API, not invariants: no
 `as_slice() -> &[(K, V)]` (use `keys()`/`values()`), `from_store` takes two stores, and
-`capacity()` is the `min` of the two columns' bounds. SoA can't be a `Store` (the
+`max_capacity()` is the `min` of the two columns' bounds. SoA can't be a `Store` (the
 `as_slice -> &[Elem]` contract is AoS by definition), so it must live as a two-store
 collection. There are **two** of these (both behind the `soa` feature): `UnsortedColumnMap`
 (unsorted) and its sorted twin `SortedColumnMap` (`src/sorted_column_map.rs`). The sorted
@@ -221,7 +221,7 @@ documents both in its module comment.
 A backend may be **read-only**: implement `Store` alone and skip `StoreMut` /
 `StoreNew` / `Unbounded`. `src/store/backend/slice.rs` (`&[T]` and `&[T; N]`) is the
 one shipped example — it backs lookups (`contains` / `get`) but no mutation, reports
-`capacity() == Some(len)` (a borrowed slice is permanently full), needs no
+`max_capacity() == Some(len)` (a borrowed slice is permanently full), needs no
 dependency or `alloc`, and is therefore the **sole ungated** `mod` in
 `backend.rs` (usable even under `--no-default-features`). Its headline use is
 wrapping a `static` sorted table via `from_store` (`SliceSet` / `SliceMap`) for
@@ -263,7 +263,7 @@ only `&mut`-returning ones (`get_mut`) belong under `StoreMut`.
 - **`no_std`-first.** `lib.rs` is `#![no_std]`; `alloc`/`std` are pulled in only behind
   features. Don't reach for `std` in core logic. `std` exists mainly so `CapacityError`
   can implement `std::error::Error`.
-- **`Capped::capacity()` returns the *effective* cap** = `min(our cap, inner's own bound)`,
+- **`Capped::max_capacity()` returns the *effective* cap** = `min(our cap, inner's own bound)`,
   so capping an already-bounded store does the expected thing.
 - **Map lifetime quirk (E0311):** returning `&V` projected from `Elem = (K, V)` needs
   explicit `K: 'a, V: 'a` bounds — rustc won't infer implied bounds through the

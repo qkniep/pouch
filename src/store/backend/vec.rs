@@ -10,7 +10,7 @@ impl<T> Store for Vec<T> {
     fn as_slice(&self) -> &[T] {
         &self[..]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         None // logical capacity; distinct from Vec::capacity() (allocation)
     }
 }

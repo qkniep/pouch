@@ -148,8 +148,8 @@ impl<S: Store> SortedMap<S> {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
-    pub fn capacity(&self) -> Option<usize> {
-        self.store.capacity()
+    pub fn max_capacity(&self) -> Option<usize> {
+        self.store.max_capacity()
     }
     /// Returns the entries as a contiguous `(K, V)` slice, in ascending key order.
     pub fn as_slice(&self) -> &[S::Elem] {
@@ -411,7 +411,7 @@ where
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the map
-    /// is at its logical [`capacity`](Self::capacity); replacing an existing key
+    /// is at its logical [`max_capacity`](Self::max_capacity); replacing an existing key
     /// never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         // Append-mostly fast path — see `SortedSet::try_insert`. Strict `>` (not
@@ -728,8 +728,8 @@ impl<S: Store> UnsortedMap<S> {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
-    pub fn capacity(&self) -> Option<usize> {
-        self.store.capacity()
+    pub fn max_capacity(&self) -> Option<usize> {
+        self.store.max_capacity()
     }
     /// Returns the entries as a contiguous `(K, V)` slice, in insertion order modulo the
     /// swaps that [`remove`](Self::remove) performs.
@@ -938,7 +938,7 @@ where
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the map
-    /// is at its logical [`capacity`](Self::capacity); replacing an existing key
+    /// is at its logical [`max_capacity`](Self::max_capacity); replacing an existing key
     /// never errors.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, CapacityError<(K, V)>> {
         if let Some(i) = self.position(&key) {

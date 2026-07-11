@@ -229,8 +229,8 @@ impl<S: Store> SortedSet<S> {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
-    pub fn capacity(&self) -> Option<usize> {
-        self.store.capacity()
+    pub fn max_capacity(&self) -> Option<usize> {
+        self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in ascending order.
     pub fn as_slice(&self) -> &[S::Elem] {
@@ -456,7 +456,7 @@ where
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `value` if the set is at its logical
-    /// [`capacity`](Self::capacity) and `value` is not already present.
+    /// [`max_capacity`](Self::max_capacity) and `value` is not already present.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
         // Append-mostly fast path (monotonic / in-order streams): a value sorting
         // strictly after the current max is a brand-new tail element, so `push`
@@ -797,8 +797,8 @@ impl<S: Store> UnsortedSet<S> {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
-    pub fn capacity(&self) -> Option<usize> {
-        self.store.capacity()
+    pub fn max_capacity(&self) -> Option<usize> {
+        self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in no particular order.
     pub fn as_slice(&self) -> &[S::Elem] {
@@ -895,7 +895,7 @@ where
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `value` if the set is at its logical
-    /// [`capacity`](Self::capacity) and `value` is not already present.
+    /// [`max_capacity`](Self::max_capacity) and `value` is not already present.
     pub fn try_insert(&mut self, value: S::Elem) -> Result<bool, CapacityError<S::Elem>> {
         if self.store.as_slice().contains(&value) {
             return Ok(false);

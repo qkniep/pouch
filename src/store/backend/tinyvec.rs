@@ -14,7 +14,7 @@ where
     fn as_slice(&self) -> &[A::Item] {
         &self[..]
     }
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         None
     }
 }

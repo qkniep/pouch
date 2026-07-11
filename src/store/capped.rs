@@ -67,9 +67,9 @@ where
 
 impl<S> Capped<S> {
     /// Wraps `inner` with a runtime cap, **assuming its current length does not already
-    /// exceed `cap`** — the `len() <= capacity()` invariant the rest of the crate relies
-    /// on (e.g. any `capacity() - len()` remaining math, which would otherwise
-    /// underflow).
+    /// exceed `cap`** — the `len() <= max_capacity()` invariant the rest of the crate
+    /// relies on (e.g. any `max_capacity() - len()` remaining math, which would
+    /// otherwise underflow).
     ///
     /// The precondition is only `debug_assert!`-checked (zero cost in release), mirroring
     /// the collection-layer `from_store`. To start from an empty store instead, use
@@ -119,9 +119,13 @@ impl<S: Store> Store for Capped<S> {
         self.inner.as_slice()
     }
 
-    fn capacity(&self) -> Option<usize> {
+    fn max_capacity(&self) -> Option<usize> {
         // Effective cap = min(our cap, inner's own bound if any).
-        Some(self.inner.capacity().map_or(self.cap, |c| c.min(self.cap)))
+        Some(
+            self.inner
+                .max_capacity()
+                .map_or(self.cap, |c| c.min(self.cap)),
+        )
     }
 }
 
@@ -179,10 +183,10 @@ mod tests {
         use heapless::Vec;
         // our cap is the tighter bound
         let tight: Capped<Vec<u8, 5>> = Capped::with_capacity(3);
-        assert_eq!(tight.capacity(), Some(3));
+        assert_eq!(tight.max_capacity(), Some(3));
         // the inner backend's own bound is the tighter one
         let loose: Capped<Vec<u8, 2>> = Capped::with_capacity(5);
-        assert_eq!(loose.capacity(), Some(2));
+        assert_eq!(loose.max_capacity(), Some(2));
     }
 
     #[cfg(feature = "alloc")]
