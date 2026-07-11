@@ -409,6 +409,13 @@ where
     /// Replacing an existing key consumes no capacity and so can never fail — only a
     /// genuinely new key at the bound errors.
     ///
+    /// **Not std's `try_insert`.** The `try_` prefix marks *capacity*-fallibility — the
+    /// crate-wide `try_*` convention — not a vacancy check. Unlike nightly
+    /// `BTreeMap::try_insert` (insert only if the key is absent, else
+    /// `Err(OccupiedError)`), this **replaces** on a duplicate key and errors *only*
+    /// when a genuinely new key won't fit. For insert-if-vacant semantics, use
+    /// [`entry`](Self::entry).
+    ///
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `(key, value)` if `key` is new and the map
@@ -934,6 +941,10 @@ where
     /// Replacing an existing key consumes no capacity and so can never fail — only a
     /// genuinely new key at the bound errors. O(n) lookup, O(1) to append or replace in
     /// place.
+    ///
+    /// **Not std's `try_insert`**: `try_` marks capacity-fallibility, not a vacancy check
+    /// — this replaces on a duplicate key. See
+    /// [`SortedMap::try_insert`](crate::SortedMap::try_insert).
     ///
     /// # Errors
     ///
