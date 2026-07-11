@@ -167,6 +167,124 @@ impl<K, V> ExactSizeIterator for ColumnIter<'_, K, V> {
 
 impl<K, V> core::iter::FusedIterator for ColumnIter<'_, K, V> {}
 
+/// Iterator over a column map's entries as `(&K, &mut V)` pairs — what
+/// [`UnsortedColumnMap::iter_mut`] and
+/// [`SortedColumnMap::iter_mut`](crate::SortedColumnMap::iter_mut) return.
+///
+/// Zips the dense key column against a mutable walk of the value column;
+/// double-ended, exact-size, and fused. Not cloneable — the value borrows are unique;
+/// the key stays shared so map invariants can't be broken through it. Named like
+/// [`ColumnIter`] so the return type is nameable and stable.
+#[derive(Debug)]
+pub struct ColumnIterMut<'a, K, V> {
+    inner: core::iter::Zip<core::slice::Iter<'a, K>, core::slice::IterMut<'a, V>>,
+}
+
+impl<'a, K, V> ColumnIterMut<'a, K, V> {
+    pub(crate) fn new(keys: &'a [K], values: &'a mut [V]) -> Self {
+        ColumnIterMut {
+            inner: keys.iter().zip(values.iter_mut()),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for ColumnIterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
+        self.inner.fold(init, f)
+    }
+}
+
+impl<K, V> DoubleEndedIterator for ColumnIterMut<'_, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back()
+    }
+}
+
+impl<K, V> ExactSizeIterator for ColumnIterMut<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for ColumnIterMut<'_, K, V> {}
+
+/// Mutable iterator over a column map's values — what
+/// [`UnsortedColumnMap::values_mut`] and
+/// [`SortedColumnMap::values_mut`](crate::SortedColumnMap::values_mut) return.
+///
+/// A thin wrapper over the value column's `&mut [V]` slice iterator (double-ended,
+/// exact-size, fused). Not cloneable — the value borrows are unique.
+#[derive(Debug)]
+pub struct ColumnValuesMut<'a, V> {
+    inner: core::slice::IterMut<'a, V>,
+}
+
+impl<'a, V> ColumnValuesMut<'a, V> {
+    pub(crate) fn new(values: &'a mut [V]) -> Self {
+        ColumnValuesMut {
+            inner: values.iter_mut(),
+        }
+    }
+}
+
+impl<'a, V> Iterator for ColumnValuesMut<'a, V> {
+    type Item = &'a mut V;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a mut V> {
+        self.inner.next()
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<&'a mut V> {
+        self.inner.nth(n)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<&'a mut V> {
+        self.inner.last()
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, &'a mut V) -> B>(self, init: B, f: F) -> B {
+        self.inner.fold(init, f)
+    }
+}
+
+impl<V> DoubleEndedIterator for ColumnValuesMut<'_, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back()
+    }
+}
+
+impl<V> ExactSizeIterator for ColumnValuesMut<'_, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<V> core::iter::FusedIterator for ColumnValuesMut<'_, V> {}
+
 /// Retains only the entries for which `f` returns `true`, keeping both columns aligned
 /// and the survivors in their original relative order — the shared engine under the two
 /// column maps' `retain`.
@@ -329,27 +447,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
     /// updates, the dense `&mut [V]` walk SoA vectorizes best.
-    pub fn iter_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.keys
-            .as_slice()
-            .iter()
-            .zip(self.values.as_mut_slice().iter_mut())
+    pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
+        ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in no particular order.
-    pub fn values_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
-    where
-        V: 'a,
-    {
-        self.values.as_mut_slice().iter_mut()
+    pub fn values_mut(&mut self) -> ColumnValuesMut<'_, V> {
+        ColumnValuesMut::new(self.values.as_mut_slice())
     }
 
     /// Retains only the entries for which `f` returns `true`, keeping both columns

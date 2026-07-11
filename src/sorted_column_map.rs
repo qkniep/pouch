@@ -42,8 +42,8 @@ use core::borrow::Borrow;
 use core::ops::RangeBounds;
 
 use crate::column_map::{
-    combined_capacity, retain_columns, ColumnEntry, ColumnIter, OccupiedColumnEntry,
-    VacantColumnEntry,
+    combined_capacity, retain_columns, ColumnEntry, ColumnIter, ColumnIterMut, ColumnValuesMut,
+    OccupiedColumnEntry, VacantColumnEntry,
 };
 use crate::error::{BuildError, CapacityError};
 use crate::set::subrange_indices;
@@ -193,27 +193,13 @@ where
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
     /// order — bulk in-place value updates over the dense `&mut [V]` walk SoA vectorizes
     /// best, without touching the keys.
-    pub fn iter_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.keys
-            .as_slice()
-            .iter()
-            .zip(self.values.as_mut_slice().iter_mut())
+    pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
+        ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in ascending order of their keys.
-    pub fn values_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
-    where
-        V: 'a,
-    {
-        self.values.as_mut_slice().iter_mut()
+    pub fn values_mut(&mut self) -> ColumnValuesMut<'_, V> {
+        ColumnValuesMut::new(self.values.as_mut_slice())
     }
 
     /// Retains only the entries for which `f` returns `true`, preserving key order and
