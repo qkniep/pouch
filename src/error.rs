@@ -37,8 +37,7 @@ impl<T> fmt::Display for CapacityError<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T> std::error::Error for CapacityError<T> {}
+impl<T> core::error::Error for CapacityError<T> {}
 
 /// Error from a fallible *bulk* build (`try_from_iter` / `try_from_sorted_iter` on any
 /// set or map).
@@ -101,5 +100,19 @@ impl<T> fmt::Display for BuildError<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T> std::error::Error for BuildError<T> {}
+impl<T> core::error::Error for BuildError<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The `Error` impls are unconditional (`core::error::Error`, stable 1.81), so the
+    // no_std audience the crate targets gets them too — this must hold with no features.
+    fn assert_error<E: core::error::Error>() {}
+
+    #[test]
+    fn error_types_impl_core_error() {
+        assert_error::<CapacityError<u32>>();
+        assert_error::<BuildError<u32>>();
+    }
+}

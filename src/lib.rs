@@ -81,8 +81,9 @@
 //! Lean by default — `default = ["std", "smallvec"]`, enough for the blessed
 //! [`Set`] / [`Map`] aliases and no more; every other backend is opt-in.
 //!
-//!   * **`std`** *(default)* — implements [`std::error::Error`] for the crate's error
-//!     types; implies `alloc`.
+//!   * **`std`** *(default)* — links against `std`. The crate's error types implement
+//!     [`core::error::Error`] unconditionally (no feature needed), so this is now just
+//!     the std-ecosystem signal and an alias for `alloc`, which it implies.
 //!   * **`alloc`** — the heap path (`Vec`, and the spill tier of the inline hybrids).
 //!     Pulled in transitively by `std` / `smallvec` / `tinyvec`.
 //!   * **`smallvec`** *(default)* — the `SmallVec` backend behind [`Set`] / [`Map`];
