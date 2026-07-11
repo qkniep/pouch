@@ -87,6 +87,29 @@ policy). `Capped`/`ScratchVec`-backed collections serialize but can't deserializ
 (no `StoreNew` — they need runtime state); build via `from_store` + `try_extend`.
 Comparators are the planned next step.
 
+### Deliberately-deferred API (v0.1 ships a minimal viable surface)
+
+The initial release keeps the surface small on purpose — additive std-parity
+methods can land later without a breaking change, so they're deferred rather than
+front-loaded. Known gaps, all pure additions (prioritization info, not hazards),
+worth adding as real use demands:
+
+- **Sets** (`SortedSet` / `UnsortedSet`): `get` (return the stored element for a
+  borrowed query — useful when `Elem` carries more than the `Eq`/`Ord` key),
+  `take` (remove-and-return), and on `SortedSet` `pop_first` / `pop_last`. Note
+  `pop_last` is a natural **`O(1)` tail-pop** on a sorted store (no shift) — a cheap,
+  on-mission method and the obvious first one to add.
+- **Maps** (`SortedMap` / `UnsortedMap`, and mirror onto the column maps):
+  `get_key_value`, `into_keys` / `into_values` (owning iterators), `range_mut`, and
+  on `SortedMap` `pop_first` / `pop_last` (same `O(1)`-tail argument for `pop_last`).
+- **`Bag`**: `count` (multiset multiplicity — an `O(n)` `filter(...).count()`) was
+  written then cut as out-of-scope for v0.1; re-add if a multiset use case appears.
+
+When adding these, keep the borrowed-key shape (`K: Borrow<Q>`) and route through the
+existing private `search`/`position` like the current accessors, and place read-only
+ones in the `impl<S: Store>` block so read-only backends (`SliceSet`/`SliceMap`) reach
+them (see the read-only-backend note under *Store trait layer*).
+
 ## Commands
 
 `just check` mirrors the core CI (fmt, clippy, build, test, doc, deny, machete, typos);
