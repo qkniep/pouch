@@ -102,8 +102,6 @@ worth adding as real use demands:
 - **Maps** (`SortedMap` / `UnsortedMap`, and mirror onto the column maps):
   `get_key_value`, `into_keys` / `into_values` (owning iterators), `range_mut`, and
   on `SortedMap` `pop_first` / `pop_last` (same `O(1)`-tail argument for `pop_last`).
-- **`Bag`**: `count` (multiset multiplicity — an `O(n)` `filter(...).count()`) was
-  written then cut as out-of-scope for v0.1; re-add if a multiset use case appears.
 
 When adding these, keep the borrowed-key shape (`K: Borrow<Q>`) and route through the
 existing private `search`/`position` like the current accessors, and place read-only
