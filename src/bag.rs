@@ -118,22 +118,6 @@ impl<S: Store> Bag<S> {
     {
         chunked_contains(self.store.as_slice(), value)
     }
-    /// Returns how many elements equal `value` — the multiset multiplicity. `O(n)`.
-    ///
-    /// `value` may be any borrowed form of the element type, like
-    /// [`contains`](Self::contains).
-    #[must_use]
-    pub fn count<Q>(&self, value: &Q) -> usize
-    where
-        S::Elem: Borrow<Q> + Eq,
-        Q: Eq + ?Sized,
-    {
-        self.store
-            .as_slice()
-            .iter()
-            .filter(|e| (*e).borrow() == value)
-            .count()
-    }
 }
 
 impl<S: StoreMut> Bag<S> {
