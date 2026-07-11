@@ -106,6 +106,314 @@ fn entry_refs<K, V>(entry: &(K, V)) -> (&K, &V) {
     (&entry.0, &entry.1)
 }
 
+/// Borrows an entry's key — the projection under [`Keys`].
+fn key_ref<K, V>(entry: &(K, V)) -> &K {
+    &entry.0
+}
+
+/// Borrows an entry's value — the projection under [`Values`].
+fn value_ref<K, V>(entry: &(K, V)) -> &V {
+    &entry.1
+}
+
+/// Splits a mutably-borrowed entry into a shared key and a mutable value — the
+/// projection under [`IterMut`] (the key stays read-only so map invariants hold).
+fn entry_ref_mut<K, V>((k, v): &mut (K, V)) -> (&K, &mut V) {
+    (k, v)
+}
+
+/// Borrows an entry's value mutably — the projection under [`ValuesMut`].
+fn value_ref_mut<K, V>((_, v): &mut (K, V)) -> &mut V {
+    v
+}
+
+/// Iterator over a map's keys — what [`SortedMap::keys`] and [`UnsortedMap::keys`]
+/// return.
+///
+/// A thin wrapper over the underlying `&[(K, V)]` slice iterator (double-ended,
+/// exact-size, fused, cloneable). Named for the same reason as [`MapIter`]: the
+/// return type stays nameable and stable while its representation stays private.
+#[derive(Debug)]
+pub struct Keys<'a, K, V> {
+    inner: core::slice::Iter<'a, (K, V)>,
+}
+
+impl<'a, K, V> Keys<'a, K, V> {
+    fn new(entries: &'a [(K, V)]) -> Self {
+        Keys {
+            inner: entries.iter(),
+        }
+    }
+}
+
+// Manual `Clone` (as on `MapIter`): the borrow clones for any element type.
+impl<K, V> Clone for Keys<'_, K, V> {
+    fn clone(&self) -> Self {
+        Keys {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for Keys<'a, K, V> {
+    type Item = &'a K;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a K> {
+        self.inner.next().map(key_ref)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<&'a K> {
+        self.inner.nth(n).map(key_ref)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<&'a K> {
+        self.inner.last().map(key_ref)
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, &'a K) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.fold(init, |acc, e| f(acc, key_ref(e)))
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for Keys<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<&'a K> {
+        self.inner.next_back().map(key_ref)
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, &'a K) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.rfold(init, |acc, e| f(acc, key_ref(e)))
+    }
+}
+
+impl<K, V> ExactSizeIterator for Keys<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for Keys<'_, K, V> {}
+
+/// Iterator over a map's values in key order — what [`SortedMap::values`] and
+/// [`UnsortedMap::values`] return.
+///
+/// A thin wrapper over the underlying `&[(K, V)]` slice iterator (double-ended,
+/// exact-size, fused, cloneable), named like [`MapIter`].
+#[derive(Debug)]
+pub struct Values<'a, K, V> {
+    inner: core::slice::Iter<'a, (K, V)>,
+}
+
+impl<'a, K, V> Values<'a, K, V> {
+    fn new(entries: &'a [(K, V)]) -> Self {
+        Values {
+            inner: entries.iter(),
+        }
+    }
+}
+
+impl<K, V> Clone for Values<'_, K, V> {
+    fn clone(&self) -> Self {
+        Values {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for Values<'a, K, V> {
+    type Item = &'a V;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a V> {
+        self.inner.next().map(value_ref)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<&'a V> {
+        self.inner.nth(n).map(value_ref)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<&'a V> {
+        self.inner.last().map(value_ref)
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, &'a V) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.fold(init, |acc, e| f(acc, value_ref(e)))
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for Values<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<&'a V> {
+        self.inner.next_back().map(value_ref)
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, &'a V) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.rfold(init, |acc, e| f(acc, value_ref(e)))
+    }
+}
+
+impl<K, V> ExactSizeIterator for Values<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for Values<'_, K, V> {}
+
+/// Iterator over a map's entries as `(&K, &mut V)` pairs — what
+/// [`SortedMap::iter_mut`] and [`UnsortedMap::iter_mut`] return.
+///
+/// A thin wrapper over the underlying `&mut [(K, V)]` slice iterator (double-ended,
+/// exact-size, fused). Not cloneable — it hands out unique `&mut V` borrows; the key
+/// stays shared so map invariants can't be broken through it.
+#[derive(Debug)]
+pub struct IterMut<'a, K, V> {
+    inner: core::slice::IterMut<'a, (K, V)>,
+}
+
+impl<'a, K, V> IterMut<'a, K, V> {
+    fn new(entries: &'a mut [(K, V)]) -> Self {
+        IterMut {
+            inner: entries.iter_mut(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    #[inline]
+    fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
+        self.inner.next().map(entry_ref_mut)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<(&'a K, &'a mut V)> {
+        self.inner.nth(n).map(entry_ref_mut)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<(&'a K, &'a mut V)> {
+        self.inner.last().map(entry_ref_mut)
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, (&'a K, &'a mut V)) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.fold(init, |acc, e| f(acc, entry_ref_mut(e)))
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
+        self.inner.next_back().map(entry_ref_mut)
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, (&'a K, &'a mut V)) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.rfold(init, |acc, e| f(acc, entry_ref_mut(e)))
+    }
+}
+
+impl<K, V> ExactSizeIterator for IterMut<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for IterMut<'_, K, V> {}
+
+/// Mutable iterator over a map's values in key order — what [`SortedMap::values_mut`]
+/// and [`UnsortedMap::values_mut`] return.
+///
+/// A thin wrapper over the underlying `&mut [(K, V)]` slice iterator (double-ended,
+/// exact-size, fused). Not cloneable — the value borrows are unique.
+#[derive(Debug)]
+pub struct ValuesMut<'a, K, V> {
+    inner: core::slice::IterMut<'a, (K, V)>,
+}
+
+impl<'a, K, V> ValuesMut<'a, K, V> {
+    fn new(entries: &'a mut [(K, V)]) -> Self {
+        ValuesMut {
+            inner: entries.iter_mut(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for ValuesMut<'a, K, V> {
+    type Item = &'a mut V;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a mut V> {
+        self.inner.next().map(value_ref_mut)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<&'a mut V> {
+        self.inner.nth(n).map(value_ref_mut)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<&'a mut V> {
+        self.inner.last().map(value_ref_mut)
+    }
+    #[inline]
+    fn fold<B, F: FnMut(B, &'a mut V) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.fold(init, |acc, e| f(acc, value_ref_mut(e)))
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for ValuesMut<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<&'a mut V> {
+        self.inner.next_back().map(value_ref_mut)
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, &'a mut V) -> B>(self, init: B, mut f: F) -> B {
+        self.inner.rfold(init, |acc, e| f(acc, value_ref_mut(e)))
+    }
+}
+
+impl<K, V> ExactSizeIterator for ValuesMut<'_, K, V> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<K, V> core::iter::FusedIterator for ValuesMut<'_, K, V> {}
+
 /// A map kept sorted by key in its backing store (`Elem = (K, V)`).
 // The stored order is canonical (sorted by key, unique keys), so the structural
 // derives are the semantic ones: the derived `Hash`/`PartialOrd`/`Ord`
@@ -202,21 +510,13 @@ where
     }
 
     /// Returns an iterator over the keys in ascending order.
-    pub fn keys<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a K> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_slice().iter().map(|(k, _)| k)
+    pub fn keys(&self) -> Keys<'_, K, V> {
+        Keys::new(self.store.as_slice())
     }
 
     /// Returns an iterator over the values, in ascending order of their keys.
-    pub fn values<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a V> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_slice().iter().map(|(_, v)| v)
+    pub fn values(&self) -> Values<'_, K, V> {
+        Values::new(self.store.as_slice())
     }
 
     /// Returns the entry with the smallest key, or `None` if empty. `O(1)`.
@@ -246,25 +546,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
     /// order — bulk in-place value updates without touching the keys.
-    pub fn iter_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_mut_slice().iter_mut().map(|(k, v)| (&*k, v))
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        IterMut::new(self.store.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in ascending order of their keys.
-    pub fn values_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_mut_slice().iter_mut().map(|(_, v)| v)
+    pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
+        ValuesMut::new(self.store.as_mut_slice())
     }
 
     /// Retains only the entries for which `f` returns `true`, preserving key order.
@@ -788,21 +1076,13 @@ where
     }
 
     /// Returns an iterator over the keys, in no particular order.
-    pub fn keys<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a K> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_slice().iter().map(|(k, _)| k)
+    pub fn keys(&self) -> Keys<'_, K, V> {
+        Keys::new(self.store.as_slice())
     }
 
     /// Returns an iterator over the values, in no particular order.
-    pub fn values<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a V> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_slice().iter().map(|(_, v)| v)
+    pub fn values(&self) -> Values<'_, K, V> {
+        Values::new(self.store.as_slice())
     }
 }
 
@@ -812,25 +1092,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
     /// updates.
-    pub fn iter_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = (&'a K, &'a mut V)> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_mut_slice().iter_mut().map(|(k, v)| (&*k, v))
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        IterMut::new(self.store.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in no particular order.
-    pub fn values_mut<'a>(
-        &'a mut self,
-    ) -> impl DoubleEndedIterator<Item = &'a mut V> + ExactSizeIterator
-    where
-        K: 'a,
-        V: 'a,
-    {
-        self.store.as_mut_slice().iter_mut().map(|(_, v)| v)
+    pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
+        ValuesMut::new(self.store.as_mut_slice())
     }
 
     /// Retains only the entries for which `f` returns `true`. `O(n)`.

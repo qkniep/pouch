@@ -133,10 +133,14 @@ pub mod store;
 pub use bag::Bag;
 #[cfg(feature = "soa")]
 pub use column_map::{
-    ColumnEntry, ColumnIter, OccupiedColumnEntry, UnsortedColumnMap, VacantColumnEntry,
+    ColumnEntry, ColumnIter, ColumnIterMut, ColumnValuesMut, OccupiedColumnEntry,
+    UnsortedColumnMap, VacantColumnEntry,
 };
 pub use error::{BuildError, CapacityError};
-pub use map::{Entry, MapIter, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry};
+pub use map::{
+    Entry, IterMut, Keys, MapIter, OccupiedEntry, SortedMap, UnsortedMap, VacantEntry, Values,
+    ValuesMut,
+};
 pub use set::{Difference, Intersection, SortedSet, SymmetricDifference, Union, UnsortedSet};
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
