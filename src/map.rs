@@ -370,9 +370,9 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the range's start is greater than its end — which includes an exclusive
-    /// range whose bounds are equal *and* present in the map (e.g. `(Bound::Excluded(k),
-    /// Bound::Excluded(k))` when `k` is a key).
+    /// Panics if the range's start is greater than its end, or if the bounds are equal
+    /// and both excluded (e.g. `(Bound::Excluded(k), Bound::Excluded(k))`) — matching
+    /// `BTreeMap::range`, and independent of the map's contents.
     pub fn range<Q, R>(&self, range: R) -> &[(K, V)]
     where
         K: Borrow<Q>,
@@ -1331,6 +1331,30 @@ mod alloc_tests {
         // A full range can't infer the borrowed key type (every `Q` fits
         // `RangeFull`), so it takes a turbofish — same as `BTreeMap::range`.
         assert_eq!(m.range::<i32, _>(..), m.as_slice());
+    }
+
+    #[test]
+    #[should_panic(expected = "range start is greater than range end")]
+    // The inverted range is the whole point of the test.
+    #[allow(clippy::reversed_empty_ranges)]
+    fn range_inverted_bounds_panic_regardless_of_contents() {
+        // No key sits in `[2, 5)`, so resolving the bounds to indices first
+        // produced an equal (empty) index range that silently returned `[]`;
+        // the up-front bound check now panics deterministically, matching
+        // `BTreeMap::range`, whatever the contents.
+        let m: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (9, "i")]).unwrap();
+        let _ = m.range(5..2);
+    }
+
+    #[test]
+    #[should_panic(expected = "range start and end are equal and excluded")]
+    fn range_excluded_equal_bounds_panic() {
+        use core::ops::Bound;
+        // The bound need not be a key — matches `BTreeMap::range`.
+        let m: SortedMap<Vec<(i32, &str)>> =
+            SortedMap::try_from_iter([(1, "a"), (3, "c")]).unwrap();
+        let _ = m.range((Bound::Excluded(2), Bound::Excluded(2)));
     }
 
     #[test]

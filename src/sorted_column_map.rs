@@ -316,16 +316,19 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the range's start is greater than its end.
+    /// Panics if the range's start is greater than its end, or if the bounds are equal
+    /// and both excluded — matching `BTreeMap::range`, and independent of the map's
+    /// contents.
     pub fn range<Q, R>(&self, range: R) -> (&[K], &[V])
     where
         K: Borrow<Q>,
         Q: Ord + ?Sized,
         R: RangeBounds<Q>,
     {
+        // `subrange_indices` rejects an inverted range with a clear panic
+        // (mirroring `SortedMap::range` / `BTreeMap::range`), so `r` is well-ordered
+        // and slicing both columns with it cannot panic.
         let r = subrange_indices(self.keys.as_slice(), range, |k| k.borrow());
-        // An inverted range (start > end) falls through to the slice indexing panic,
-        // mirroring `SortedMap::range` / `BTreeMap::range`.
         (&self.keys.as_slice()[r.clone()], &self.values.as_slice()[r])
     }
 }
