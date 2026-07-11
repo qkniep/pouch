@@ -145,6 +145,21 @@ impl<'a, K, V> Iterator for ColumnIter<'a, K, V> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
+    // Forward the same fast paths as the single-store `MapIter`: `Zip` over two
+    // random-access slice iterators has an index-based `nth` (`O(1)`, not the
+    // `next`-loop default) and an unrolled `fold`.
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.inner.nth(n)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<Self::Item> {
+        self.inner.last()
+    }
     #[inline]
     fn fold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
         self.inner.fold(init, f)
@@ -155,6 +170,10 @@ impl<K, V> DoubleEndedIterator for ColumnIter<'_, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
+        self.inner.rfold(init, f)
     }
 }
 
@@ -199,6 +218,19 @@ impl<'a, K, V> Iterator for ColumnIterMut<'a, K, V> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
+    // Forward the same fast paths as the single-store `IterMut` (see `ColumnIter`).
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.inner.nth(n)
+    }
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+    #[inline]
+    fn last(self) -> Option<Self::Item> {
+        self.inner.last()
+    }
     #[inline]
     fn fold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
         self.inner.fold(init, f)
@@ -209,6 +241,10 @@ impl<K, V> DoubleEndedIterator for ColumnIterMut<'_, K, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
+        self.inner.rfold(init, f)
     }
 }
 
@@ -273,6 +309,10 @@ impl<V> DoubleEndedIterator for ColumnValuesMut<'_, V> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
+    }
+    #[inline]
+    fn rfold<B, F: FnMut(B, Self::Item) -> B>(self, init: B, f: F) -> B {
+        self.inner.rfold(init, f)
     }
 }
 
