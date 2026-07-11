@@ -261,8 +261,11 @@ only `&mut`-returning ones (`get_mut`) belong under `StoreMut`.
   (it can't be fallible); sets do. `FromIterator`, `Extend`, and the infallible
   `from_sorted_iter` are `Unbounded`-gated, mirroring `insert`.
 - **`no_std`-first.** `lib.rs` is `#![no_std]`; `alloc`/`std` are pulled in only behind
-  features. Don't reach for `std` in core logic. `std` exists mainly so `CapacityError`
-  can implement `std::error::Error`.
+  features. Don't reach for `std` in core logic. The error types implement
+  `core::error::Error` **unconditionally** (stable since 1.81; MSRV is 1.87), so `std`
+  no longer gates any public behavior — it just implies `alloc` and links `std` for the
+  `catch_unwind` panic tests. Keep new `Error` impls on `core::error::Error`, never
+  `std::error::Error`.
 - **`Capped::max_capacity()` returns the *effective* cap** = `min(our cap, inner's own bound)`,
   so capping an already-bounded store does the expected thing.
 - **Map lifetime quirk (E0311):** returning `&V` projected from `Elem = (K, V)` needs
