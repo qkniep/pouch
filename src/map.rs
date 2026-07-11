@@ -784,6 +784,15 @@ where
     /// assert_eq!(counts.get("b"), Some(&1));
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<'_, S, K> {
+        // Append-mostly fast path, mirroring `try_insert`: a key strictly past the
+        // current max is provably absent and belongs at the tail, so the counting
+        // idiom over an ascending stream skips the `O(log n)` search per new key.
+        // Strict `>` is load-bearing — an equal key must fall through to `search`
+        // and resolve to its `Occupied` slot, never a tail `Vacant`.
+        if self.store.as_slice().last().is_none_or(|(k, _)| key > *k) {
+            let index = self.store.len();
+            return Entry::Vacant(VacantEntry::new(&mut self.store, index, key));
+        }
         match self.search(&key) {
             Ok(index) => Entry::Occupied(OccupiedEntry::sorted(&mut self.store, index)),
             Err(index) => Entry::Vacant(VacantEntry::new(&mut self.store, index, key)),
@@ -1511,6 +1520,21 @@ mod alloc_tests {
         assert_eq!(counts.get(&"c"), Some(&1));
         // A vacant entry inserts at the binary-search slot, so order is kept.
         assert_eq!(counts.as_slice(), &[("a", 3), ("b", 2), ("c", 1)]);
+    }
+
+    #[test]
+    fn entry_monotonic_tail_fast_path_matches_search() {
+        // The append-mostly fast path must resolve to the same Entry the binary
+        // search would: a new max (and the empty map) is Vacant at the tail, an
+        // equal-to-max key must still fall through to the Occupied slot.
+        let mut m: SortedMap<Vec<(i32, &str)>> = SortedMap::new();
+        assert!(matches!(m.entry(5), Entry::Vacant(_))); // empty → Vacant at 0
+        m.entry(5).or_insert("e");
+        m.entry(9).or_insert("i"); // 9 > 5: fast-path Vacant, appends at tail
+        assert!(matches!(m.entry(9), Entry::Occupied(_))); // == max: not the tail
+        assert!(matches!(m.entry(3), Entry::Vacant(_))); // < max: searched, interior
+        m.entry(3).or_insert("c");
+        assert_eq!(m.as_slice(), &[(3, "c"), (5, "e"), (9, "i")]);
     }
 
     #[test]
