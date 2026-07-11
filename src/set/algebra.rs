@@ -1,12 +1,20 @@
 //! Merge-based set algebra — the iterators behind [`SortedSet::union`] & co.
 //!
-//! Every operation is a two-pointer merge walk over the two sets' already
-//! sorted slices: `O(n + m)`, no allocation, no hashing, yielding references
-//! in ascending order. Because the walk only needs the slices, the other set
-//! may live in a **different store** — a heap set can union with a `static`
-//! [`SliceSet`](crate::SliceSet) table. The subset/disjoint predicates switch
-//! to per-element binary search (`O(n log m)`) when one side is ≥16× smaller,
-//! the same adaptivity `BTreeSet` applies.
+//! The base walk is a two-pointer merge over the two sets' already sorted
+//! slices: `O(n + m)`, no allocation, no hashing, yielding references in
+//! ascending order. Because the walk only needs the slices, the other set may
+//! live in a **different store** — a heap set can union with a `static`
+//! [`SliceSet`](crate::SliceSet) table.
+//!
+//! [`Intersection`], [`Difference`], and the subset/disjoint predicates are
+//! **size-adaptive**: when one side is ≥16× smaller they drop the merge and
+//! binary-search each element of the small side into the large one
+//! (`O(n log m)`), so intersecting a 3-element set with a 100k-entry table
+//! probes 3 times instead of walking 100k — the same tipping point `BTreeSet`
+//! uses. [`Union`] and [`SymmetricDifference`] stay pure merges: their output
+//! is `Ω(n + m)` (every distinct element can appear), so there is nothing to
+//! skip. Every walk yields ascending, so [`min`](Iterator::min) is one `next`,
+//! not a drain.
 //!
 //! [`SortedSet::union`]: crate::SortedSet::union
 
@@ -93,6 +101,9 @@ pub struct Union<'a, T> {
 pub struct Intersection<'a, T> {
     a: &'a [T],
     b: &'a [T],
+    /// When set, `a` is the (≥16×) smaller side: probe each of its elements into
+    /// `b` rather than merging — `O(n log m)` instead of `O(n + m)`.
+    search: bool,
 }
 
 /// Ascending iterator over the elements in `a` but not `b` — see
@@ -102,6 +113,9 @@ pub struct Intersection<'a, T> {
 pub struct Difference<'a, T> {
     a: &'a [T],
     b: &'a [T],
+    /// When set, the kept side `a` is ≥16× smaller than the subtracted side `b`:
+    /// probe each of its elements into `b` rather than merging.
+    search: bool,
 }
 
 /// Ascending iterator over the elements in exactly one of `a`, `b` — see
@@ -120,12 +134,26 @@ impl<'a, T> Union<'a, T> {
 }
 impl<'a, T> Intersection<'a, T> {
     pub(crate) fn new(a: &'a [T], b: &'a [T]) -> Self {
-        Intersection { a, b }
+        // Intersection is symmetric, so orient `a` to the smaller side whenever a
+        // side is ≥16× smaller; the search walk then always probes `a` into `b`.
+        if b.len().saturating_mul(16) <= a.len() {
+            Intersection {
+                a: b,
+                b: a,
+                search: true,
+            }
+        } else {
+            let search = a.len().saturating_mul(16) <= b.len();
+            Intersection { a, b, search }
+        }
     }
 }
 impl<'a, T> Difference<'a, T> {
     pub(crate) fn new(a: &'a [T], b: &'a [T]) -> Self {
-        Difference { a, b }
+        // Difference is asymmetric: only the kept side `a` being ≥16× smaller than
+        // the subtracted side `b` lets per-element probing beat the merge.
+        let search = a.len().saturating_mul(16) <= b.len();
+        Difference { a, b, search }
     }
 }
 impl<'a, T> SymmetricDifference<'a, T> {
@@ -150,6 +178,7 @@ impl<T> Clone for Intersection<'_, T> {
         Intersection {
             a: self.a,
             b: self.b,
+            search: self.search,
         }
     }
 }
@@ -158,6 +187,7 @@ impl<T> Clone for Difference<'_, T> {
         Difference {
             a: self.a,
             b: self.b,
+            search: self.search,
         }
     }
 }
@@ -210,12 +240,33 @@ impl<'a, T: Ord> Iterator for Union<'a, T> {
             self.a.len().checked_add(self.b.len()),
         )
     }
+
+    fn min(mut self) -> Option<&'a T> {
+        // Output is ascending, so the first element is the minimum — one step, not
+        // the draining default.
+        self.next()
+    }
 }
 
 impl<'a, T: Ord> Iterator for Intersection<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
+        if self.search {
+            // `a` is the smaller side: probe each of its elements into `b`, shrinking
+            // `b` past every probe (both ascending, so the suffix always suffices).
+            loop {
+                let (x, rest) = self.a.split_first()?;
+                self.a = rest;
+                match self.b.binary_search(x) {
+                    Ok(i) => {
+                        self.b = &self.b[i + 1..];
+                        return Some(x);
+                    }
+                    Err(i) => self.b = &self.b[i..],
+                }
+            }
+        }
         loop {
             let (x, a_rest) = self.a.split_first()?;
             let (y, b_rest) = self.b.split_first()?;
@@ -234,12 +285,31 @@ impl<'a, T: Ord> Iterator for Intersection<'a, T> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, Some(self.a.len().min(self.b.len())))
     }
+
+    fn min(mut self) -> Option<&'a T> {
+        self.next()
+    }
 }
 
 impl<'a, T: Ord> Iterator for Difference<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
+        if self.search {
+            // `a` (kept) is the smaller side: probe each element into `b` (subtracted)
+            // and yield the misses, shrinking `b` past every probe.
+            loop {
+                let (x, rest) = self.a.split_first()?;
+                self.a = rest;
+                match self.b.binary_search(x) {
+                    Ok(i) => self.b = &self.b[i + 1..],
+                    Err(i) => {
+                        self.b = &self.b[i..];
+                        return Some(x);
+                    }
+                }
+            }
+        }
         loop {
             let (x, a_rest) = self.a.split_first()?;
             let Some((y, b_rest)) = self.b.split_first() else {
@@ -267,6 +337,10 @@ impl<'a, T: Ord> Iterator for Difference<'a, T> {
             self.a.len().saturating_sub(self.b.len()),
             Some(self.a.len()),
         )
+    }
+
+    fn min(mut self) -> Option<&'a T> {
+        self.next()
     }
 }
 
@@ -310,6 +384,10 @@ impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
             self.a.len().abs_diff(self.b.len()),
             self.a.len().checked_add(self.b.len()),
         )
+    }
+
+    fn min(mut self) -> Option<&'a T> {
+        self.next()
     }
 }
 
