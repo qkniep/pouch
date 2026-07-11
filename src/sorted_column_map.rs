@@ -96,10 +96,12 @@ impl<SK: StoreNew, SV: StoreNew> Default for SortedColumnMap<SK, SV> {
 
 impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     /// Returns the number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
     /// Returns `true` if the map contains no entries.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -107,6 +109,7 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     /// (`None` = unbounded).
     ///
     /// Capping either column caps the map.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
@@ -114,11 +117,13 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     /// target.
     ///
     /// `zip` with [`values`](Self::values) to iterate entries by key.
+    #[must_use]
     pub fn keys(&self) -> &[SK::Elem] {
         self.keys.as_slice()
     }
     /// Returns the values as a contiguous slice, index-aligned with
     /// [`keys`](Self::keys) (so also in ascending key order).
+    #[must_use]
     pub fn values(&self) -> &[SV::Elem] {
         self.values.as_slice()
     }
@@ -127,12 +132,14 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store collections.
     ///
     /// Shared-ref only: `&mut` access could desync the columns or unsort the keys.
+    #[must_use]
     pub fn stores(&self) -> (&SK, &SV) {
         (&self.keys, &self.values)
     }
     /// Consumes the map and hands back its stores, `(keys, values)`, entries
     /// intact, index-aligned, and still in ascending key order — the inverse
     /// of [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_stores(self) -> (SK, SV) {
         (self.keys, self.values)
     }
@@ -165,11 +172,13 @@ where
     ///
     /// Zips the two columns; `&map` iterates the same way. To walk a single column use
     /// the [`keys`](Self::keys) / [`values`](Self::values) slices directly.
+    #[must_use]
     pub fn iter(&self) -> ColumnIter<'_, K, V> {
         ColumnIter::new(self.keys.as_slice(), self.values.as_slice())
     }
 
     /// Returns the entry with the smallest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first_key_value(&self) -> Option<(&K, &V)> {
         Some((
             self.keys.as_slice().first()?,
@@ -178,6 +187,7 @@ where
     }
 
     /// Returns the entry with the largest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last_key_value(&self) -> Option<(&K, &V)> {
         Some((self.keys.as_slice().last()?, self.values.as_slice().last()?))
     }
@@ -193,11 +203,13 @@ where
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
     /// order — bulk in-place value updates over the dense `&mut [V]` walk SoA vectorizes
     /// best, without touching the keys.
+    #[must_use]
     pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
         ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in ascending order of their keys.
+    #[must_use]
     pub fn values_mut(&mut self) -> ColumnValuesMut<'_, V> {
         ColumnValuesMut::new(self.values.as_mut_slice())
     }
@@ -272,6 +284,7 @@ where
     /// `key` may be any borrowed form of `K` (a `String`-keyed column map answers
     /// `get("k")` without allocating), with the usual [`Borrow`] contract that the
     /// borrowed form's `Ord` agrees with `K`'s.
+    #[must_use]
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
@@ -286,6 +299,7 @@ where
     /// with a chunked boolean fold, the sorted layout shares the `O(log n)` binary search
     /// with [`get`](Self::get): a linear scan would forfeit the very `O(log n)` the
     /// ordering buys. `key` may be any borrowed form of `K`, like [`get`](Self::get).
+    #[must_use]
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -311,6 +325,7 @@ where
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded — matching `BTreeMap::range`, and independent of the map's
     /// contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> (&[K], &[V])
     where
         K: Borrow<Q>,
@@ -338,6 +353,7 @@ where
     /// [`SortedMap::get_mut`](crate::SortedMap::get_mut)): the value column is already
     /// `&mut [V]`, so elision ties the result to `&mut self`. `key` may be any borrowed
     /// form of `K`, like [`get`](Self::get).
+    #[must_use]
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
         K: Borrow<Q>,

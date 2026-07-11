@@ -64,27 +64,33 @@ impl<S: Store> Bag<S> {
     /// Borrows the backing store, for backend-specific introspection
     /// (`spilled()`, allocated capacity, …) — see
     /// [`SortedSet::store`](crate::SortedSet::store).
+    #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
     /// Consumes the bag and hands back its store, elements intact and in
     /// insertion order — the inverse of [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_store(self) -> S {
         self.store
     }
     /// Returns the number of elements.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.store.len()
     }
     /// Returns `true` if the bag contains no elements.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in insertion order.
+    #[must_use]
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -94,6 +100,7 @@ impl<S: Store> Bag<S> {
     }
     /// Returns a reference to the element at `i` in insertion order, or `None` if out of
     /// bounds.
+    #[must_use]
     pub fn get(&self, i: usize) -> Option<&S::Elem> {
         self.store.as_slice().get(i)
     }
@@ -103,6 +110,7 @@ impl<S: Store> Bag<S> {
     /// may be any borrowed form of the element type (a `String` bag answers
     /// `contains("x")` without allocating), with the usual [`Borrow`] contract that the
     /// borrowed form's `Eq` agrees with the element type's.
+    #[must_use]
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q> + Eq,
@@ -114,6 +122,7 @@ impl<S: Store> Bag<S> {
     ///
     /// `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
+    #[must_use]
     pub fn count<Q>(&self, value: &Q) -> usize
     where
         S::Elem: Borrow<Q> + Eq,
@@ -132,6 +141,7 @@ impl<S: StoreMut> Bag<S> {
     ///
     /// A bag has no invariant, so arbitrary mutation (reorder, overwrite) is always
     /// valid.
+    #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
     }
@@ -147,6 +157,7 @@ impl<S: StoreMut> Bag<S> {
         retain_in(&mut self.store, f);
     }
     /// Returns a mutable reference to the element at `i`, or `None` if out of bounds.
+    #[must_use]
     pub fn get_mut(&mut self, i: usize) -> Option<&mut S::Elem> {
         self.store.as_mut_slice().get_mut(i)
     }

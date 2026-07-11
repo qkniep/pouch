@@ -15,12 +15,12 @@
 //! * the length claimed on the wire is treated with serde's usual caution (capped before
 //!   it reaches [`reserve`](crate::store::StoreMut::reserve)), so hostile input can't
 //!   force a giant allocation up front — but **that caps memory, not compute**: the
-//!   unsorted flavors and [`SortedColumnMap`](crate::SortedColumnMap) have no `Ord`-free
-//!   (resp. co-sortable) bulk dedup, so their `try_from_iter` — and hence their
-//!   deserialization — is `O(n²)` in the entry count. A bounded backend caps `n`; an
-//!   unbounded one does not, so 50k hostile elements into an `UnsortedSet<Vec<_>>` is
-//!   ~1.25e9 comparisons. For untrusted *unbounded* input prefer the sorted single-store
-//!   flavors ([`SortedSet`]/[`SortedMap`], `O(n log n)`), or impose a bound.
+//!   unsorted flavors and [`SortedColumnMap`] have no `Ord`-free (resp. co-sortable) bulk
+//!   dedup, so their `try_from_iter` — and hence their deserialization — is `O(n²)` in
+//!   the entry count. A bounded backend caps `n`; an unbounded one does not, so 50k
+//!   hostile elements into an `UnsortedSet<Vec<_>>` is ~1.25e9 comparisons. For untrusted
+//!   *unbounded* input prefer the sorted single-store flavors
+//!   ([`SortedSet`]/[`SortedMap`], `O(n log n)`), or impose a bound.
 //!
 //! **Caveat — the sorted set/map bulk-build tradeoff surfaces here.** Only [`SortedSet`]
 //! and [`SortedMap`] build by appending every entry *before* the sort/dedup pass, so on a

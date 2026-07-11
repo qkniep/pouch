@@ -211,28 +211,34 @@ impl<S: Store> SortedSet<S> {
     /// s.insert(3);
     /// assert!(s.store().spilled()); // outgrew N = 2 — now on the heap
     /// ```
+    #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
     /// Consumes the set and hands back its store, elements intact and still in
     /// ascending order — the inverse of [`from_store`](Self::from_store), for
     /// reusing the buffer or handing a sorted `Vec` to an API that wants one.
+    #[must_use]
     pub fn into_store(self) -> S {
         self.store
     }
     /// Returns the number of elements.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.store.len()
     }
     /// Returns `true` if the set contains no elements.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in ascending order.
+    #[must_use]
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -241,10 +247,12 @@ impl<S: Store> SortedSet<S> {
         self.store.as_slice().iter()
     }
     /// Returns the smallest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first(&self) -> Option<&S::Elem> {
         self.store.as_slice().first()
     }
     /// Returns the largest element, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last(&self) -> Option<&S::Elem> {
         self.store.as_slice().last()
     }
@@ -263,6 +271,7 @@ impl<S: Store> SortedSet<S> {
     /// assert!(s.contains(&2));
     /// assert!(!s.contains(&5));
     /// ```
+    #[must_use]
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q> + Ord,
@@ -297,6 +306,7 @@ impl<S: Store> SortedSet<S> {
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded — matching `BTreeSet::range`, and independent of the set's
     /// contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> &[S::Elem]
     where
         S::Elem: Borrow<Q> + Ord,
@@ -315,6 +325,7 @@ impl<S: Store> SortedSet<S> {
     ///
     /// `O(n + m)` merge walk, switching to `O(n log m)` binary searches when `self` is
     /// ≥16× smaller.
+    #[must_use]
     pub fn is_subset<S2>(&self, other: &SortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
@@ -325,6 +336,7 @@ impl<S: Store> SortedSet<S> {
 
     /// Returns `true` if every element of `other` is in `self` —
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
+    #[must_use]
     pub fn is_superset<S2>(&self, other: &SortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
@@ -336,6 +348,7 @@ impl<S: Store> SortedSet<S> {
     /// Returns `true` if `self` and `other` share no element.
     ///
     /// `O(n + m)` merge walk, switching to binary searches when one side is ≥16× smaller.
+    #[must_use]
     pub fn is_disjoint<S2>(&self, other: &SortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
@@ -780,27 +793,33 @@ impl<S: Store> UnsortedSet<S> {
     ///
     /// Shared-ref only: `&mut` access could smuggle in a duplicate, breaking the set
     /// invariant.
+    #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
     /// Consumes the set and hands back its store, elements intact (in no
     /// particular order) — the inverse of [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_store(self) -> S {
         self.store
     }
     /// Returns the number of elements.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.store.len()
     }
     /// Returns `true` if the set contains no elements.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         self.store.max_capacity()
     }
     /// Returns the elements as a contiguous slice, in no particular order.
+    #[must_use]
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -813,6 +832,7 @@ impl<S: Store> UnsortedSet<S> {
     /// `value` may be any borrowed form of the element type — a `String` set answers
     /// `contains("x")` without allocating — with the usual [`Borrow`] contract that the
     /// borrowed form's `Eq` agrees with the element type's.
+    #[must_use]
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         S::Elem: Borrow<Q> + Eq,
@@ -829,6 +849,7 @@ impl<S: Store> UnsortedSet<S> {
     /// Returns `true` if every element of `self` is in `other`.
     ///
     /// `O(n·m)` — a [`contains`](Self::contains) scan per element.
+    #[must_use]
     pub fn is_subset<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
@@ -839,6 +860,7 @@ impl<S: Store> UnsortedSet<S> {
 
     /// Returns `true` if every element of `other` is in `self` —
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
+    #[must_use]
     pub fn is_superset<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
@@ -850,6 +872,7 @@ impl<S: Store> UnsortedSet<S> {
     /// Returns `true` if `self` and `other` share no element.
     ///
     /// `O(n·m)`, scanning with the smaller set on the outside.
+    #[must_use]
     pub fn is_disjoint<S2>(&self, other: &UnsortedSet<S2>) -> bool
     where
         S2: Store<Elem = S::Elem>,
