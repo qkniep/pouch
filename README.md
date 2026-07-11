@@ -43,7 +43,7 @@ orthogonal, so you mix them freely:
 - **storage** — *where* elements live (heap / inline / hybrid): the `Store` trait
   family, implemented once per backend.
 - **bound** — the maximum logical element count, reported by
-  `Store::capacity() -> Option<usize>`. A runtime bound is added with the
+  `Store::max_capacity() -> Option<usize>`. A runtime bound is added with the
   `Capped<S>` wrapper rather than per backend.
 - **ordering** — sorted (`SortedSet`/`SortedMap`, `O(log n)` lookup) vs unsorted
   (`UnsortedSet`/`UnsortedMap`, `O(n)` lookup, `O(1)` structural mutation, needs only

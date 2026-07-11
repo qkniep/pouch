@@ -32,7 +32,7 @@
 //! [`values`](SortedColumnMap::values) slices), and [`range`](SortedColumnMap::range)
 //! likewise hands back two aligned subslices rather than one `&[(K, V)]`;
 //! [`from_store`](SortedColumnMap::from_store) takes two stores, and
-//! [`capacity`](SortedColumnMap::capacity) is the `min` of the two columns'
+//! [`max_capacity`](SortedColumnMap::max_capacity) is the `min` of the two columns'
 //! bounds. Unlike `UnsortedColumnMap`'s O(1) swap-remove, the order-preserving
 //! [`try_insert`](SortedColumnMap::try_insert) /
 //! [`remove`](SortedColumnMap::remove) shift *both* columns in lockstep (`O(log
@@ -101,8 +101,8 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     /// (`None` = unbounded).
     ///
     /// Capping either column caps the map.
-    pub fn capacity(&self) -> Option<usize> {
-        combined_capacity(self.keys.capacity(), self.values.capacity())
+    pub fn max_capacity(&self) -> Option<usize> {
+        combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
     /// Returns the keys as a contiguous slice, in ascending order — the dense search
     /// target.
@@ -362,7 +362,7 @@ where
     /// guarantees both inserts below succeed — no half-insert, no rollback. `i == len` is
     /// the O(1) tail append; `i < len` shifts.
     fn insert_entry_at(&mut self, i: usize, key: K, value: V) -> Result<(), CapacityError<(K, V)>> {
-        if let Some(cap) = self.capacity() {
+        if let Some(cap) = self.max_capacity() {
             if self.keys.len() >= cap {
                 return Err(CapacityError((key, value)));
             }
@@ -869,7 +869,7 @@ mod hetero_tests {
     fn capacity_is_min_of_the_two_columns() {
         // Bounded keys (cap 2), unbounded values: the map is bounded at 2.
         let mut m: SortedColumnMap<HVec<u8, 2>, Vec<u16>> = SortedColumnMap::new();
-        assert_eq!(m.capacity(), Some(2));
+        assert_eq!(m.max_capacity(), Some(2));
         m.try_insert(1, 10).unwrap();
         m.try_insert(2, 20).unwrap();
         let err = m.try_insert(3, 30).expect_err("key column is full at 2");

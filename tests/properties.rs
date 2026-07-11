@@ -80,7 +80,7 @@ fn store_ops() -> impl Strategy<Value = Vec<StoreOp>> {
 }
 
 fn check_store_contract<S: StoreMut<Elem = u8>>(mut store: S, ops: &[StoreOp]) {
-    let cap = store.capacity();
+    let cap = store.max_capacity();
     let mut model: Vec<u8> = Vec::new();
     for op in ops {
         match *op {
@@ -120,7 +120,7 @@ fn check_store_contract<S: StoreMut<Elem = u8>>(mut store: S, ops: &[StoreOp]) {
         assert_eq!(store.len(), model.len());
         assert_eq!(store.is_empty(), model.is_empty());
         // The logical bound is a property of the store, not of its fill level.
-        assert_eq!(store.capacity(), cap);
+        assert_eq!(store.max_capacity(), cap);
     }
 }
 
@@ -207,7 +207,7 @@ macro_rules! set_matches_btreeset {
             #[test]
             fn $name(ops in set_ops()) {
                 let mut set = $ctor;
-                let cap = set.capacity();
+                let cap = set.max_capacity();
                 let mut oracle: BTreeSet<u8> = BTreeSet::new();
                 let normalize = $norm;
                 for op in ops {
@@ -350,7 +350,7 @@ macro_rules! map_matches_btreemap {
             #[test]
             fn $name(ops in map_ops()) {
                 let mut map = $ctor;
-                let cap = map.capacity();
+                let cap = map.max_capacity();
                 let mut oracle: BTreeMap<u8, u16> = BTreeMap::new();
                 let normalize = $norm;
                 for op in ops {
@@ -471,7 +471,7 @@ macro_rules! map_matches_btreemap {
 }
 
 // Same representative policy as the sets — including no hybrid instance: a
-// SmallVec map has capacity() == None, so it's behaviorally the Vec case; the
+// SmallVec map has max_capacity() == None, so it's behaviorally the Vec case; the
 // suite's one collection-driven spill crossing is the set's smallvec instance,
 // and the store contract owns the boundary itself. The column maps are not
 // backend redundancy — two-store logic and combined caps are collection code

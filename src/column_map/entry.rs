@@ -275,7 +275,7 @@ where
             index,
             key,
         } = self;
-        if let Some(cap) = combined_capacity(keys.capacity(), values.capacity()) {
+        if let Some(cap) = combined_capacity(keys.max_capacity(), values.max_capacity()) {
             if keys.len() >= cap {
                 return Err(CapacityError((key, value)));
             }

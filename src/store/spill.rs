@@ -8,7 +8,7 @@
 //! always end up there); the inline tier `A` must be **bounded** and `B` sized to
 //! hold at least `A`'s capacity, or the migration has nowhere to land. An unbounded
 //! `A` would never fill, so it would never spill — the population would stay in `A`,
-//! leaving `B` dead and `capacity()` advertising a bound the store never enforces.
+//! leaving `B` dead and `max_capacity()` advertising a bound the store never enforces.
 //!
 //! `Spill<ArrayVec<T, N>, Vec<T>>` reproduces a `SmallVec` by composition (no
 //! heap until spill, then unbounded), and being [`Unbounded`] through `B` it gets
@@ -112,9 +112,9 @@ impl<A: Store, B: Store> Spill<A, B> {
     ///
     /// In debug builds, panics if either tier is non-empty; if the inline tier is
     /// unbounded (it would never fill, so it would never spill — the spill tier left
-    /// dead and `capacity()` advertising a bound the store never enforces); or if the
+    /// dead and `max_capacity()` advertising a bound the store never enforces); or if the
     /// spill tier's bound is smaller than the inline tier's capacity, which would
-    /// otherwise report a `capacity()` below the inline tier's live `len()` and only
+    /// otherwise report a `max_capacity()` below the inline tier's live `len()` and only
     /// panic later, when the migration has nowhere to land. Release builds trust the
     /// precondition unchecked.
     pub fn from_tiers(inline: A, spill: B) -> Self {
@@ -124,9 +124,9 @@ impl<A: Store, B: Store> Spill<A, B> {
         );
         // The inline tier is the bounded, escalate-*from* tier: an unbounded one would
         // never fill, so it would never migrate — the spill tier left dead and
-        // `capacity()` (the spill's bound) advertising a limit the store never enforces.
+        // `max_capacity()` (the spill's bound) advertising a limit the store never enforces.
         debug_assert!(
-            inline.capacity().is_some(),
+            inline.max_capacity().is_some(),
             "Spill::from_tiers: the inline tier must be bounded",
         );
         // With the inline tier bounded, the spill tier must hold at least its capacity
@@ -134,8 +134,8 @@ impl<A: Store, B: Store> Spill<A, B> {
         // inline bound, or a migration would have nowhere to land.
         debug_assert!(
             spill
-                .capacity()
-                .is_none_or(|sc| inline.capacity().is_none_or(|ic| sc >= ic)),
+                .max_capacity()
+                .is_none_or(|sc| inline.max_capacity().is_none_or(|ic| sc >= ic)),
             "Spill::from_tiers: spill tier capacity must be at least the inline tier's",
         );
         Spill {
@@ -202,15 +202,15 @@ where
         }
     }
 
-    fn capacity(&self) -> Option<usize> {
-        match self.inline.capacity() {
+    fn max_capacity(&self) -> Option<usize> {
+        match self.inline.max_capacity() {
             // The inline tier is bounded (`from_tiers`), so the population ends up in
             // `spill` once it fills — the spill tier's bound is the logical capacity.
-            Some(_) => self.spill.capacity(),
+            Some(_) => self.spill.max_capacity(),
             // Defensive: an unbounded inline tier is rejected at construction, but only
             // by `debug_assert!`. Were that guard compiled out, the store would never
             // spill, so its logical capacity is genuinely unbounded — report `None` to
-            // keep `len() <= capacity()` honest rather than parrot the unreachable
+            // keep `len() <= max_capacity()` honest rather than parrot the unreachable
             // spill bound.
             None => None,
         }
@@ -272,7 +272,7 @@ where
     fn reserve(&mut self, additional: usize) {
         if self.spilled {
             self.spill.reserve(additional);
-        } else if let Some(cap) = self.inline.capacity() {
+        } else if let Some(cap) = self.inline.max_capacity() {
             let projected = self.inline.len() + additional;
             if projected > cap {
                 // Pre-spill the spill tier is empty (elements live in exactly
@@ -280,7 +280,7 @@ where
                 self.spill.reserve(projected);
             }
         }
-        // No `else`: the inline tier is bounded (`from_tiers`), so `capacity()` is
+        // No `else`: the inline tier is bounded (`from_tiers`), so `max_capacity()` is
         // always `Some` here — a projected length within it needs no reservation, and
         // one that overflows it pre-arms the spill tier above.
     }
@@ -336,7 +336,7 @@ mod tests {
         let mut s = Spill::from_tiers(ScratchVec::new(&mut small), ScratchVec::new(&mut big));
 
         // Effective capacity is the spill tier's bound, before and after spilling.
-        assert_eq!(s.capacity(), Some(8));
+        assert_eq!(s.max_capacity(), Some(8));
 
         // Fill the inline tier.
         push(&mut s, 1).expect("room");
@@ -459,10 +459,10 @@ mod tests {
             set.try_insert(x).expect("within scratch capacity");
         }
         assert_eq!(set.as_slice(), &[1, 2, 3, 5, 7, 8, 9]);
-        assert_eq!(set.capacity(), Some(16));
+        assert_eq!(set.max_capacity(), Some(16));
     }
 
-    // A spill tier smaller than the inline tier would report a `capacity()` below the
+    // A spill tier smaller than the inline tier would report a `max_capacity()` below the
     // inline tier's live `len()`; the debug guard rejects it at construction. Gated on
     // `debug_assertions`, since the check compiles out in release.
     #[cfg(all(debug_assertions, feature = "arrayvec"))]
@@ -477,7 +477,7 @@ mod tests {
     }
 
     // The inline tier is the bounded, escalate-*from* tier. An unbounded inline tier
-    // never fills, so it never migrates: the spill tier would be dead and `capacity()`
+    // never fills, so it never migrates: the spill tier would be dead and `max_capacity()`
     // would advertise a bound the store never enforces. The debug guard rejects it at
     // construction. Gated on `debug_assertions`, since the check compiles out in release.
     #[cfg(all(debug_assertions, feature = "alloc"))]

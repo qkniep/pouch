@@ -22,7 +22,7 @@ fn vec_set_unbounded() {
     assert!(s.contains(&3));
     assert!(s.remove(&3));
     assert_eq!(s.as_slice(), &[1, 5]);
-    assert_eq!(s.capacity(), None);
+    assert_eq!(s.max_capacity(), None);
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn arrayvec_fixed_capacity() {
     // The fixed-cap demo: full reports the bound and hands the element back.
     // (The capacity semantics themselves are property-tested exhaustively.)
     let mut s: SortedSet<arrayvec::ArrayVec<u64, 3>> = SortedSet::new();
-    assert_eq!(s.capacity(), Some(3));
+    assert_eq!(s.max_capacity(), Some(3));
     for x in [5, 1, 9] {
         assert_eq!(s.try_insert(x), Ok(true));
     }
@@ -57,7 +57,7 @@ fn smallvec_spills_and_stays_sorted() {
     assert!(s.insert(10));
     assert!(s.insert(20));
     assert_eq!(s.as_slice(), &[10, 20, 30]);
-    assert_eq!(s.capacity(), None); // still unbounded after spilling
+    assert_eq!(s.max_capacity(), None); // still unbounded after spilling
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn unsorted_set_basic() {
     assert!(!s.insert(3)); // duplicate, no capacity consumed
     assert_eq!(s.len(), 3);
     assert!(s.contains(&1) && s.contains(&5) && !s.contains(&2));
-    assert_eq!(s.capacity(), None);
+    assert_eq!(s.max_capacity(), None);
     // swap-remove: order is not preserved, but membership stays correct.
     assert!(s.remove(&5));
     assert!(!s.remove(&5));
@@ -132,7 +132,7 @@ fn column_map_two_backends_insert_get_remove() {
     assert_eq!(m.remove(&2), Some("TWO"));
     assert_eq!(m.get(&1), Some(&"one"));
     assert_eq!(m.get(&2), None);
-    assert_eq!(m.capacity(), None); // both columns unbounded
+    assert_eq!(m.max_capacity(), None); // both columns unbounded
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn sorted_column_map_two_backends_keep_order() {
     assert_eq!(m.remove(&1), Some("one"));
     assert_eq!(m.keys(), &[2, 3]);
     assert_eq!(m.values(), &["TWO", "three"]);
-    assert_eq!(m.capacity(), None); // both columns unbounded
+    assert_eq!(m.max_capacity(), None); // both columns unbounded
 }
 
 #[test]

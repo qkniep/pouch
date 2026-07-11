@@ -20,8 +20,8 @@
 //! Three orthogonal axes are separated deliberately, one per layer:
 //!   * **storage**  — where elements live (heap / inline / hybrid / borrowed): the
 //!     [`store::Store`] trait family, implemented once per backend.
-//!   * **bound**    — max logical element count: `Store::capacity() -> Option<usize>`,
-//!     with [`Capped`] adding a runtime bound to any store.
+//!   * **bound**    — max logical element count: `Store::max_capacity() ->
+//!     Option<usize>`, with [`Capped`] adding a runtime bound to any store.
 //!   * **ordering** — sorted vs unsorted, in the collection layer: [`SortedSet`] /
 //!     [`UnsortedSet`] and [`SortedMap`] / [`UnsortedMap`], NOT the store.
 //!
