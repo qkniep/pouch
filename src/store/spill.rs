@@ -5,8 +5,10 @@
 //! Contiguity (the `as_slice() -> &[Elem]` contract) holds because the elements
 //! live in exactly **one** tier at a time — the migration moves them all at once,
 //! they are never split across `A` and `B`. So the logical capacity is `B`'s (you
-//! always end up there); size `B` to hold at least `A`'s capacity, or the
-//! migration has nowhere to land.
+//! always end up there); the inline tier `A` must be **bounded** and `B` sized to
+//! hold at least `A`'s capacity, or the migration has nowhere to land. An unbounded
+//! `A` would never fill, so it would never spill — the population would stay in `A`,
+//! leaving `B` dead and `capacity()` advertising a bound the store never enforces.
 //!
 //! `Spill<ArrayVec<T, N>, Vec<T>>` reproduces a `SmallVec` by composition (no
 //! heap until spill, then unbounded), and being [`Unbounded`] through `B` it gets
@@ -25,9 +27,9 @@ use crate::error::CapacityError;
 ///
 /// The elements live in exactly one tier at a time — the migration moves them all at
 /// once — so the `as_slice()` contiguity contract holds and the logical capacity is
-/// `spill`'s. Size `B` to hold at least `A`'s capacity, or the migration has nowhere to
-/// land. When `B` is [`Unbounded`], so is the `Spill`, which unlocks the collection
-/// layer's infallible `insert`.
+/// `spill`'s. The inline tier `A` must be bounded and `B` sized to hold at least `A`'s
+/// capacity, or the migration has nowhere to land. When `B` is [`Unbounded`], so is the
+/// `Spill`, which unlocks the collection layer's infallible `insert`.
 #[derive(Clone, Debug)]
 pub struct Spill<A, B> {
     inline: A,
@@ -108,18 +110,28 @@ impl<A: Store, B: Store> Spill<A, B> {
     ///
     /// # Panics
     ///
-    /// In debug builds, panics if either tier is non-empty, or if the spill tier's
-    /// bound is smaller than the inline tier's capacity, which would otherwise report a
-    /// `capacity()` below the inline tier's live `len()` and only panic later, when the
-    /// migration has nowhere to land. Release builds trust the precondition unchecked.
+    /// In debug builds, panics if either tier is non-empty; if the inline tier is
+    /// unbounded (it would never fill, so it would never spill — the spill tier left
+    /// dead and `capacity()` advertising a bound the store never enforces); or if the
+    /// spill tier's bound is smaller than the inline tier's capacity, which would
+    /// otherwise report a `capacity()` below the inline tier's live `len()` and only
+    /// panic later, when the migration has nowhere to land. Release builds trust the
+    /// precondition unchecked.
     pub fn from_tiers(inline: A, spill: B) -> Self {
         debug_assert!(
             inline.is_empty() && spill.is_empty(),
             "Spill::from_tiers: both tiers must start empty",
         );
-        // The spill tier must hold at least the inline capacity (module docs): an
-        // unbounded spill always does; a bounded one must be `>=` the inline bound.
-        // An unbounded inline tier never fills, so it imposes no constraint.
+        // The inline tier is the bounded, escalate-*from* tier: an unbounded one would
+        // never fill, so it would never migrate — the spill tier left dead and
+        // `capacity()` (the spill's bound) advertising a limit the store never enforces.
+        debug_assert!(
+            inline.capacity().is_some(),
+            "Spill::from_tiers: the inline tier must be bounded",
+        );
+        // With the inline tier bounded, the spill tier must hold at least its capacity
+        // (module docs): an unbounded spill always does; a bounded one must be `>=` the
+        // inline bound, or a migration would have nowhere to land.
         debug_assert!(
             spill
                 .capacity()
@@ -191,8 +203,17 @@ where
     }
 
     fn capacity(&self) -> Option<usize> {
-        // Everything ends up in `spill`, so its bound is the logical capacity.
-        self.spill.capacity()
+        match self.inline.capacity() {
+            // The inline tier is bounded (`from_tiers`), so the population ends up in
+            // `spill` once it fills — the spill tier's bound is the logical capacity.
+            Some(_) => self.spill.capacity(),
+            // Defensive: an unbounded inline tier is rejected at construction, but only
+            // by `debug_assert!`. Were that guard compiled out, the store would never
+            // spill, so its logical capacity is genuinely unbounded — report `None` to
+            // keep `len() <= capacity()` honest rather than parrot the unreachable
+            // spill bound.
+            None => None,
+        }
     }
 }
 
@@ -258,13 +279,10 @@ where
                 // one tier), so `projected` more elements is the full need.
                 self.spill.reserve(projected);
             }
-        } else {
-            // Inline tier is unbounded (e.g. `Spill<Vec, _>`): it can never
-            // overflow, so it holds the whole population and never spills.
-            // Forward the hint so a bulk build reserves once up front instead
-            // of reallocating per push.
-            self.inline.reserve(additional);
         }
+        // No `else`: the inline tier is bounded (`from_tiers`), so `capacity()` is
+        // always `Some` here — a projected length within it needs no reservation, and
+        // one that overflows it pre-arms the spill tier above.
     }
 }
 
@@ -456,5 +474,18 @@ mod tests {
         let mut scratch = [0u32; 2]; // spill holds 2 < inline's 4
         let _: Spill<ArrayVec<u32, 4>, ScratchVec<u32>> =
             Spill::with_spill(ScratchVec::new(&mut scratch));
+    }
+
+    // The inline tier is the bounded, escalate-*from* tier. An unbounded inline tier
+    // never fills, so it never migrates: the spill tier would be dead and `capacity()`
+    // would advertise a bound the store never enforces. The debug guard rejects it at
+    // construction. Gated on `debug_assertions`, since the check compiles out in release.
+    #[cfg(all(debug_assertions, feature = "alloc"))]
+    #[test]
+    #[should_panic(expected = "inline tier must be bounded")]
+    fn from_tiers_rejects_unbounded_inline() {
+        use alloc::vec::Vec;
+
+        let _: Spill<Vec<u32>, Vec<u32>> = Spill::from_tiers(Vec::new(), Vec::new());
     }
 }
