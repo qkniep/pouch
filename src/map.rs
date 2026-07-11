@@ -950,8 +950,9 @@ where
 
     /// Removes the entry for `key`, returning its value.
     ///
-    /// Swap-remove: O(1), order not preserved. `key` may be any borrowed form of `K`,
-    /// like [`get`](Self::get).
+    /// `O(n)` overall: an `O(n)` scan locates `key`, then an `O(1)` swap-remove pulls it
+    /// out (order not preserved). `key` may be any borrowed form of `K`, like
+    /// [`get`](Self::get).
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,

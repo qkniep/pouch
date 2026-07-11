@@ -887,10 +887,11 @@ impl<S: StoreMut> UnsortedSet<S>
 where
     S::Elem: Eq,
 {
-    /// Appends `value` at the tail.
+    /// Appends `value` at the tail if it is not already present.
     ///
     /// `Ok(true)` if newly added, `Ok(false)` if already present (a duplicate consumes no
-    /// capacity and never errors). O(n) to reject a duplicate, O(1) to append.
+    /// capacity and never errors). `O(n)` overall: every insert first scans the store to
+    /// enforce uniqueness, then appends in `O(1)`.
     ///
     /// # Errors
     ///
@@ -903,9 +904,10 @@ where
         push(&mut self.store, value).map(|()| true)
     }
 
-    /// Removes by swapping in the last element (O(1)); does not preserve order.
+    /// Removes `value` if present; does not preserve order.
     ///
-    /// `value` may be any borrowed form of the element type, like
+    /// `O(n)` overall: an `O(n)` scan locates `value`, then an `O(1)` swap with the last
+    /// element pulls it out. `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
     pub fn remove<Q>(&mut self, value: &Q) -> bool
     where
