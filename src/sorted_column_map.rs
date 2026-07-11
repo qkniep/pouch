@@ -59,13 +59,19 @@ use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 /// Panicking key/value destructors are unsupported: the two columns are mutated in
 /// sequence, so a destructor that unwinds mid-mutation (in [`remove`](Self::remove),
 /// [`clear`](Self::clear), …) can leave them unequal length if the panic is caught.
-// The stored order is canonical (sorted by key, unique keys), so the structural
-// derives are the semantic ones, as for `SortedMap` — this map can key another
-// map or live in a `BTreeSet`. One caveat: the derived `PartialOrd`/`Ord`
-// compare **column-wise** (all keys, then all values) — a valid total order
-// consistent with `Eq`, but not the entry-interleaved order of the AoS
-// `SortedMap`/`BTreeMap`; don't expect the two flavors to sort collections of
-// maps identically.
+///
+/// The stored order is canonical (sorted by key, unique keys), so the structural derives
+/// are the semantic ones, as for [`SortedMap`](crate::SortedMap): this map can key
+/// another map or live in a `BTreeSet`.
+///
+/// **Ordering caveat:** the derived [`PartialOrd`]/[`Ord`] compare **column-wise** — the
+/// whole key column, then the whole value column — a valid total order consistent with
+/// [`Eq`], but *not* the entry-interleaved order of the AoS
+/// [`SortedMap`](crate::SortedMap)/`BTreeMap`. The two can disagree: `{1: "z"}` sorts
+/// *before* `{1: "a", 2: "b"}` here (the key column `[1]` is a prefix of `[1, 2]`, so it
+/// decides before any value is read), yet *after* it under `SortedMap` (the interleaved
+/// walk reaches `"z"` vs `"a"` at the shared key `1`). Don't expect the two flavors to
+/// sort collections of maps identically.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SortedColumnMap<SK, SV> {
     keys: SK,

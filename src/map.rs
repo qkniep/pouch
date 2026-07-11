@@ -5,6 +5,7 @@
 //! needs only `K: Eq` rather than `K: Ord`.
 
 use core::borrow::Borrow;
+use core::cmp::Ordering;
 use core::ops::RangeBounds;
 
 use crate::error::{BuildError, CapacityError};
@@ -570,11 +571,10 @@ where
         store.reserve(iter.size_hint().0);
         for entry in iter {
             if let Some((prev_key, _)) = store.as_slice().last() {
-                if entry.0 < *prev_key {
-                    return Err(BuildError::Unsorted(entry));
-                }
-                if *prev_key == entry.0 {
-                    return Err(BuildError::DuplicateKey(entry));
+                match entry.0.cmp(prev_key) {
+                    Ordering::Less => return Err(BuildError::Unsorted(entry)),
+                    Ordering::Equal => return Err(BuildError::DuplicateKey(entry)),
+                    Ordering::Greater => {}
                 }
             }
             push(&mut store, entry)?;
