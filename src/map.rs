@@ -449,18 +449,22 @@ impl<S: StoreNew> Default for SortedMap<S> {
 
 impl<S: Store> SortedMap<S> {
     /// Returns the number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.store.len()
     }
     /// Returns `true` if the map contains no entries.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         self.store.max_capacity()
     }
     /// Returns the entries as a contiguous `(K, V)` slice, in ascending key order.
+    #[must_use]
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -469,11 +473,13 @@ impl<S: Store> SortedMap<S> {
     ///
     /// Shared-ref only: `&mut` access could break the sorted-by-key invariant that
     /// [`from_store`](Self::from_store) trusts.
+    #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
     /// Consumes the map and hands back its store, entries intact and still in
     /// ascending key order — the inverse of [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_store(self) -> S {
         self.store
     }
@@ -501,6 +507,7 @@ where
     S: Store<Elem = (K, V)>,
 {
     /// Returns an iterator over the entries as `(&K, &V)` pairs, in ascending key order.
+    #[must_use]
     pub fn iter<'a>(&'a self) -> MapIter<'a, K, V>
     where
         K: 'a,
@@ -510,11 +517,13 @@ where
     }
 
     /// Returns an iterator over the keys in ascending order.
+    #[must_use]
     pub fn keys(&self) -> Keys<'_, K, V> {
         Keys::new(self.store.as_slice())
     }
 
     /// Returns an iterator over the values, in ascending order of their keys.
+    #[must_use]
     pub fn values(&self) -> Values<'_, K, V> {
         Values::new(self.store.as_slice())
     }
@@ -546,11 +555,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
     /// order — bulk in-place value updates without touching the keys.
+    #[must_use]
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         IterMut::new(self.store.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in ascending order of their keys.
+    #[must_use]
     pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
         ValuesMut::new(self.store.as_mut_slice())
     }
@@ -627,6 +638,7 @@ where
     /// assert_eq!(m.get("a"), Some(&1));
     /// assert_eq!(m.get("z"), None);
     /// ```
+    #[must_use]
     pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
         K: Borrow<Q> + 'a,
@@ -641,6 +653,7 @@ where
     ///
     /// `O(log n)` — like [`get`](Self::get) but yields a yes/no answer, so it needs no
     /// value lifetime. `key` may be any borrowed form of `K`.
+    #[must_use]
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -682,6 +695,7 @@ where
     ///
     /// Carries the same explicit `K/V: 'a` bounds as [`get`](Self::get) (the E0311
     /// quirk), and takes any borrowed form of `K` the same way.
+    #[must_use]
     pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
         K: Borrow<Q> + 'a,
@@ -1015,19 +1029,23 @@ impl<S: StoreNew> Default for UnsortedMap<S> {
 
 impl<S: Store> UnsortedMap<S> {
     /// Returns the number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.store.len()
     }
     /// Returns `true` if the map contains no entries.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.store.is_empty()
     }
     /// Returns the logical capacity, or `None` if unbounded.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         self.store.max_capacity()
     }
     /// Returns the entries as a contiguous `(K, V)` slice, in insertion order modulo the
     /// swaps that [`remove`](Self::remove) performs.
+    #[must_use]
     pub fn as_slice(&self) -> &[S::Elem] {
         self.store.as_slice()
     }
@@ -1036,11 +1054,13 @@ impl<S: Store> UnsortedMap<S> {
     ///
     /// Shared-ref only: `&mut` access could smuggle in a duplicate key, breaking the map
     /// invariant.
+    #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
     /// Consumes the map and hands back its store, entries intact (in no
     /// particular order) — the inverse of [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_store(self) -> S {
         self.store
     }
@@ -1067,6 +1087,7 @@ where
     S: Store<Elem = (K, V)>,
 {
     /// Returns an iterator over the entries as `(&K, &V)` pairs, in no particular order.
+    #[must_use]
     pub fn iter<'a>(&'a self) -> MapIter<'a, K, V>
     where
         K: 'a,
@@ -1076,11 +1097,13 @@ where
     }
 
     /// Returns an iterator over the keys, in no particular order.
+    #[must_use]
     pub fn keys(&self) -> Keys<'_, K, V> {
         Keys::new(self.store.as_slice())
     }
 
     /// Returns an iterator over the values, in no particular order.
+    #[must_use]
     pub fn values(&self) -> Values<'_, K, V> {
         Values::new(self.store.as_slice())
     }
@@ -1092,11 +1115,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
     /// updates.
+    #[must_use]
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         IterMut::new(self.store.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in no particular order.
+    #[must_use]
     pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
         ValuesMut::new(self.store.as_mut_slice())
     }
@@ -1160,6 +1185,7 @@ where
     /// `UnsortedMap<Vec<(String, V)>>` answers `get("k")` without allocating a
     /// `String` to ask — with the usual [`Borrow`] contract that the borrowed
     /// form's `Eq` agrees with `K`'s.
+    #[must_use]
     pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
     where
         K: Borrow<Q> + 'a,
@@ -1174,6 +1200,7 @@ where
     /// `O(n)` — routes through the same internal linear scan as the other lookups, so it
     /// stays consistent with [`get`](Self::get), and takes any borrowed form of `K` the
     /// same way.
+    #[must_use]
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -1194,6 +1221,7 @@ where
     /// Routes through the same internal linear scan as [`get`](Self::get) and takes any
     /// borrowed form of `K` the same way; carries the same explicit `K/V: 'a` bounds (the
     /// E0311 quirk).
+    #[must_use]
     pub fn get_mut<'a, Q>(&'a mut self, key: &Q) -> Option<&'a mut V>
     where
         K: Borrow<Q> + 'a,

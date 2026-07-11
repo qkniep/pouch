@@ -80,6 +80,7 @@ pub(crate) fn is_disjoint<'s, T: Ord>(mut a: &'s [T], mut b: &'s [T]) -> bool {
 /// Ascending iterator over the elements in `a`, `b`, or both — see
 /// [`SortedSet::union`](crate::SortedSet::union).
 #[derive(Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Union<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -88,6 +89,7 @@ pub struct Union<'a, T> {
 /// Ascending iterator over the elements in both `a` and `b` — see
 /// [`SortedSet::intersection`](crate::SortedSet::intersection).
 #[derive(Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Intersection<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -96,6 +98,7 @@ pub struct Intersection<'a, T> {
 /// Ascending iterator over the elements in `a` but not `b` — see
 /// [`SortedSet::difference`](crate::SortedSet::difference).
 #[derive(Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Difference<'a, T> {
     a: &'a [T],
     b: &'a [T],
@@ -104,6 +107,7 @@ pub struct Difference<'a, T> {
 /// Ascending iterator over the elements in exactly one of `a`, `b` — see
 /// [`SortedSet::symmetric_difference`](crate::SortedSet::symmetric_difference).
 #[derive(Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct SymmetricDifference<'a, T> {
     a: &'a [T],
     b: &'a [T],

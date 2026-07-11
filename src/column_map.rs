@@ -360,10 +360,12 @@ impl<SK: StoreNew, SV: StoreNew> Default for UnsortedColumnMap<SK, SV> {
 
 impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     /// Returns the number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
     /// Returns `true` if the map contains no entries.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -371,17 +373,20 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     /// (`None` = unbounded).
     ///
     /// Capping either column caps the map.
+    #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
     /// Returns the keys as a contiguous slice — the dense scan target.
     ///
     /// `zip` with [`values`](Self::values) to iterate entries.
+    #[must_use]
     pub fn keys(&self) -> &[SK::Elem] {
         self.keys.as_slice()
     }
     /// Returns the values as a contiguous slice, index-aligned with
     /// [`keys`](Self::keys).
+    #[must_use]
     pub fn values(&self) -> &[SV::Elem] {
         self.values.as_slice()
     }
@@ -394,12 +399,14 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     ///
     /// Shared-ref only: `&mut` access could desync the columns or smuggle in a duplicate
     /// key.
+    #[must_use]
     pub fn stores(&self) -> (&SK, &SV) {
         (&self.keys, &self.values)
     }
     /// Consumes the map and hands back its stores, `(keys, values)`, entries
     /// intact and index-aligned — the inverse of
     /// [`from_store`](Self::from_store).
+    #[must_use]
     pub fn into_stores(self) -> (SK, SV) {
         (self.keys, self.values)
     }
@@ -432,6 +439,7 @@ where
     ///
     /// Zips the two columns; `&map` iterates the same way. To walk a single column use
     /// the [`keys`](Self::keys) / [`values`](Self::values) slices directly.
+    #[must_use]
     pub fn iter(&self) -> ColumnIter<'_, K, V> {
         ColumnIter::new(self.keys.as_slice(), self.values.as_slice())
     }
@@ -447,11 +455,13 @@ where
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
     /// updates, the dense `&mut [V]` walk SoA vectorizes best.
+    #[must_use]
     pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
         ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
     }
 
     /// Returns a mutable iterator over the values, in no particular order.
+    #[must_use]
     pub fn values_mut(&mut self) -> ColumnValuesMut<'_, V> {
         ColumnValuesMut::new(self.values.as_mut_slice())
     }
@@ -523,6 +533,7 @@ where
     /// `key` may be any borrowed form of `K` (a `String`-keyed column map answers
     /// `get("k")` without allocating), with the usual [`Borrow`] contract that the
     /// borrowed form's `Eq` agrees with `K`'s.
+    #[must_use]
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
@@ -541,6 +552,7 @@ where
     /// `chunked_position`, so the broad-`n`, value-independent edge over
     /// [`UnsortedMap`](crate::UnsortedMap) — whose strided `(K, V)` scan can't fold the
     /// same way — holds across the board.
+    #[must_use]
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -563,6 +575,7 @@ where
     /// [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value column is
     /// already `&mut [V]`, so elision ties the result to `&mut self`. `key` may be any
     /// borrowed form of `K`, like [`get`](Self::get).
+    #[must_use]
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
         K: Borrow<Q>,
