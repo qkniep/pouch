@@ -66,7 +66,12 @@ pub trait StoreMut: Store {
     /// # Errors
     ///
     /// Returns [`CapacityError`] carrying `value` if the store is at its logical
-    /// capacity.
+    /// capacity. This is the **only** permitted failure: an insert that keeps
+    /// `len()` within [`max_capacity()`](Store::max_capacity) must succeed. A
+    /// backend must not fail below its bound (e.g. via fallible `try_reserve`) —
+    /// like `Vec`, it must abort on allocation failure instead — because callers
+    /// rely on a below-cap insert being infallible (the column maps pre-check the
+    /// combined cap once, then insert into both columns without rollback).
     ///
     /// # Panics
     ///
