@@ -122,6 +122,7 @@ impl<S: Store> Bag<S> {
     ///
     /// `value` may be any borrowed form of the element type, like
     /// [`contains`](Self::contains).
+    #[must_use]
     pub fn count<Q>(&self, value: &Q) -> usize
     where
         S::Elem: Borrow<Q> + Eq,
@@ -140,6 +141,7 @@ impl<S: StoreMut> Bag<S> {
     ///
     /// A bag has no invariant, so arbitrary mutation (reorder, overwrite) is always
     /// valid.
+    #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [S::Elem] {
         self.store.as_mut_slice()
     }

@@ -529,6 +529,7 @@ where
     }
 
     /// Returns the entry with the smallest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first_key_value<'a>(&'a self) -> Option<(&'a K, &'a V)>
     where
         K: 'a,
@@ -538,6 +539,7 @@ where
     }
 
     /// Returns the entry with the largest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last_key_value<'a>(&'a self) -> Option<(&'a K, &'a V)>
     where
         K: 'a,
@@ -675,6 +677,7 @@ where
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded (e.g. `(Bound::Excluded(k), Bound::Excluded(k))`) — matching
     /// `BTreeMap::range`, and independent of the map's contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> &[(K, V)]
     where
         K: Borrow<Q>,

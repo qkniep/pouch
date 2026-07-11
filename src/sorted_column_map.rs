@@ -178,6 +178,7 @@ where
     }
 
     /// Returns the entry with the smallest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn first_key_value(&self) -> Option<(&K, &V)> {
         Some((
             self.keys.as_slice().first()?,
@@ -186,6 +187,7 @@ where
     }
 
     /// Returns the entry with the largest key, or `None` if empty. `O(1)`.
+    #[must_use]
     pub fn last_key_value(&self) -> Option<(&K, &V)> {
         Some((self.keys.as_slice().last()?, self.values.as_slice().last()?))
     }
@@ -323,6 +325,7 @@ where
     /// Panics if the range's start is greater than its end, or if the bounds are equal
     /// and both excluded — matching `BTreeMap::range`, and independent of the map's
     /// contents.
+    #[must_use]
     pub fn range<Q, R>(&self, range: R) -> (&[K], &[V])
     where
         K: Borrow<Q>,
