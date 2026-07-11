@@ -68,9 +68,13 @@ like `SortedMap`. `SortedSet` has merge-based set algebra (`union` / `intersecti
 `difference` / `symmetric_difference` iterators plus `is_subset` / `is_superset` /
 `is_disjoint`, `src/set/algebra.rs`): `O(n + m)` two-pointer walks over the sorted
 slices, cross-store (`other` may use a different backend — e.g. union with a `SliceSet`
-flash table), with the predicates switching to `O(n log m)` binary searches when one
-side is ≥16× smaller (BTreeSet's adaptivity). `UnsortedSet` gets only the three
-predicates (`O(n·m)` scans — no order, no merge). `MapIter` is a handwritten struct,
+flash table). `intersection` / `difference` and the predicates are **size-adaptive** —
+when one side is ≥16× smaller they drop the merge and binary-search each element of the
+small side into the large one (`O(n log m)`, so a 3-element set against a 100k table
+probes 3× instead of walking 100k), the same tipping point BTreeSet uses; `union` /
+`symmetric_difference` stay pure merges (output is `Ω(n + m)`, nothing to skip). All four
+iterators override `min` to a single `next` (output is ascending). `UnsortedSet` gets only
+the three predicates (`O(n·m)` scans — no order, no merge). `MapIter` is a handwritten struct,
 NOT an `iter::Map<_, fn(…)>` alias — naming that alias forces a function *pointer*,
 which can survive to codegen as an indirect call in hot loops. Serde support lives
 behind the `serde` feature (`src/serde_impls.rs`): sets/bags serialize as sequences
