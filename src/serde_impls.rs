@@ -14,20 +14,30 @@
 //!   for free;
 //! * the length claimed on the wire is treated with serde's usual caution (capped before
 //!   it reaches [`reserve`](crate::store::StoreMut::reserve)), so hostile input can't
-//!   force a giant allocation up front.
+//!   force a giant allocation up front — but **that caps memory, not compute**: the
+//!   unsorted flavors and [`SortedColumnMap`](crate::SortedColumnMap) have no `Ord`-free
+//!   (resp. co-sortable) bulk dedup, so their `try_from_iter` — and hence their
+//!   deserialization — is `O(n²)` in the entry count. A bounded backend caps `n`; an
+//!   unbounded one does not, so 50k hostile elements into an `UnsortedSet<Vec<_>>` is
+//!   ~1.25e9 comparisons. For untrusted *unbounded* input prefer the sorted single-store
+//!   flavors ([`SortedSet`]/[`SortedMap`], `O(n log n)`), or impose a bound.
 //!
-//! **Caveat — the bulk-build tradeoff surfaces here.** The `try_from_iter` builders
-//! append every entry *before* the dedup/sort pass, so on a bounded backend the
-//! deserializer can reject input whose *deduplicated* result would have fit: `[1, 1, 2]`
-//! into a `SortedSet<ArrayVec<u8, 2>>` is a capacity error even though `{1, 2}` fits, and
-//! a duplicate map key can surface as [`BuildError::Capacity`] (the append overflowed)
-//! rather than the more precise [`BuildError::DuplicateKey`] when the raw count exceeds
-//! the bound first. This is the documented crate-wide bulk-build tradeoff — one
-//! `O(n log n)` pass instead of a per-element `try_insert` loop — but it is most
-//! surprising precisely at this untrusted-input boundary, where the reported error can
-//! misidentify *why* valid-looking input was refused. Deserializing into an unbounded
-//! store, or feeding pre-deduplicated input, sidesteps it; for exact-fit bounded input
-//! validation, build via `from_store` + a `try_insert` loop instead.
+//! **Caveat — the sorted set/map bulk-build tradeoff surfaces here.** Only [`SortedSet`]
+//! and [`SortedMap`] build by appending every entry *before* the sort/dedup pass, so on a
+//! bounded backend their deserializer can reject input whose *deduplicated* result would
+//! have fit: `[1, 1, 2]` into a `SortedSet<ArrayVec<u8, 2>>` is a capacity error even
+//! though `{1, 2}` fits, and a duplicate `SortedMap` key can surface as
+//! [`BuildError::Capacity`] (the append overflowed) rather than the more precise
+//! [`BuildError::DuplicateKey`] when the raw count exceeds the bound first. This is the
+//! documented crate-wide bulk-build tradeoff — one `O(n log n)` pass instead of a
+//! per-element `try_insert` loop — but it is most surprising precisely at this
+//! untrusted-input boundary, where the reported error can misidentify *why* valid-looking
+//! input was refused. The unsorted flavors ([`UnsortedSet`], [`UnsortedMap`]) and both
+//! column maps build check-then-insert per element, so a duplicate there never consumes a
+//! slot and always reports [`BuildError::DuplicateKey`], never a spurious capacity error.
+//! Deserializing a sorted set/map into an unbounded store, or feeding pre-deduplicated
+//! input, sidesteps it; for exact-fit bounded input validation, build via `from_store` +
+//! a `try_insert` loop instead.
 //!
 //! Deserialize needs to build a store, so it is bounded on `StoreMut +
 //! StoreNew`: stores that need runtime state to construct ([`Capped`], a cap;
@@ -35,6 +45,10 @@
 //! via `from_store` and fill with `try_extend` instead.
 //!
 //! [`de::Error`]: serde::de::Error
+//! [`SortedSet`]: crate::SortedSet
+//! [`SortedMap`]: crate::SortedMap
+//! [`UnsortedSet`]: crate::UnsortedSet
+//! [`UnsortedMap`]: crate::UnsortedMap
 //! [`Capped`]: crate::Capped
 //! [`ScratchVec`]: crate::ScratchVec
 //! [`BuildError::Capacity`]: crate::BuildError::Capacity
