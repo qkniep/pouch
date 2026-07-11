@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="assets/banner.webp" alt="pouch" width="640">
+  <img src="https://raw.githubusercontent.com/qkniep/pouch/main/assets/banner.webp" alt="pouch" width="640">
 </p>
 
 # pouch
 
 [![CI](https://github.com/qkniep/pouch/actions/workflows/rust.yml/badge.svg)](https://github.com/qkniep/pouch/actions/workflows/rust.yml)
+[![crates.io](https://img.shields.io/crates/v/pouch.svg)](https://crates.io/crates/pouch)
+[![docs.rs](https://img.shields.io/docsrs/pouch)](https://docs.rs/pouch)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 **Flat, allocation-avoiding sets and maps for Rust — small collections stay inline until they outgrow `N`.**
