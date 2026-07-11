@@ -994,6 +994,11 @@ where
         I: IntoIterator<Item = S::Elem>,
     {
         let mut set = Self::new();
+        let iter = iter.into_iter();
+        // One reallocation up front instead of a `log n` burst; a growable store
+        // over-reserves only when the input holds duplicates (the accepted
+        // bulk-build tradeoff). The `min`-capped serde adapters rely on this.
+        set.reserve(iter.size_hint().0);
         set.try_extend(iter)?;
         Ok(set)
     }

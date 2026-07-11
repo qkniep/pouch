@@ -1343,6 +1343,11 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut map = Self::new();
+        let iter = iter.into_iter();
+        // One reallocation up front instead of a `log n` burst; a growable store
+        // over-reserves only when the input holds duplicates (the accepted
+        // bulk-build tradeoff). The `min`-capped serde adapters rely on this.
+        map.reserve(iter.size_hint().0);
         for (key, value) in iter {
             if map.position(&key).is_some() {
                 return Err(BuildError::DuplicateKey((key, value)));
