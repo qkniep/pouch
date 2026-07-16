@@ -21,17 +21,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false # no authenticated git operations after checkout
 
       - name: Check whether the crate is published
         id: published
         run: |
           name=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
-          if curl -sf -A "semver-checks gate (github actions)" \
-              "https://crates.io/api/v1/crates/$name" -o /dev/null; then
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+              -A "semver-checks gate (github actions)" \
+              "https://crates.io/api/v1/crates/$name" || true)
+          if [ "$status" = "200" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$status" = "404" ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "::notice::$name is not published on crates.io yet; skipping SemVer check until the first release."
+          else
+            # Fail closed: only a definitive 404 may skip the check — a rate
+            # limit, outage, or network error must not silently pass the gate.
+            echo "::error::crates.io probe for $name failed (HTTP $status)"
+            exit 1
           fi
 
       - name: Check SemVer

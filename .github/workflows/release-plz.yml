@@ -10,7 +10,7 @@
 # This workflow runs release-plz with the built-in GITHUB_TOKEN — no GitHub App
 # or PAT needed. Repo setup:
 #   * Leave Settings > Actions > General > Workflow permissions read-only; the
-#     permissions: block below grants this workflow the writes it needs.
+#     per-job permissions: blocks below grant each job the writes it needs.
 #   * Tick "Allow GitHub Actions to create and approve pull requests" — a policy
 #     gate the permissions: block can't grant on its own.
 #   * Add a CARGO_REGISTRY_TOKEN secret (a crates.io API token).
@@ -29,14 +29,14 @@
 # its own temporary clones (`git fetch origin main` hits an interactive credential
 # prompt and fails), so it churns the release PR — closing it and opening a new one
 # on every push to main. You also don't publish to crates.io while private. So the
-# jobs stay inert until you make the repo public, then resume automatically. (To
-# run release-plz while private instead, drop the `if` guards and inject the token
-# as a GLOBAL git credential so its temp clones can auth.)
+# jobs stay inert until you make the repo public, then resume on the next push to
+# main — flipping visibility emits a `public` event, not a `push`, so nothing runs
+# at the flip itself. (To run release-plz while private instead, drop the `if`
+# guards and inject the token as a GLOBAL git credential so its temp clones can auth.)
 name: Release-plz
 
-permissions:
-  contents: write
-  pull-requests: write
+# No workflow-level grants: each job below declares exactly what it needs.
+permissions: {}
 
 on:
   push:
@@ -47,6 +47,8 @@ jobs:
     name: Release-plz release
     runs-on: ubuntu-latest
     if: ${{ !github.event.repository.private }} # public repos only — see header
+    permissions:
+      contents: write # push the release tag and create the GitHub release
     concurrency:
       group: release-plz-release-${{ github.ref }}
       cancel-in-progress: false
@@ -71,6 +73,9 @@ jobs:
     name: Release-plz PR
     runs-on: ubuntu-latest
     if: ${{ !github.event.repository.private }} # public repos only — see header
+    permissions:
+      contents: write # push the release-pr branch
+      pull-requests: write # open/update the release PR
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
@@ -88,5 +93,6 @@ jobs:
         with:
           command: release-pr
         env:
+          # No CARGO_REGISTRY_TOKEN here: release-pr never publishes, so the
+          # publish secret stays scoped to the release job above.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -11,14 +11,14 @@
 # branch protection's required checks.
 #
 # Runs on pull_request_target so it also works for PRs from forks: the token is
-# writable in the base context, which the pending-status feature needs. It only
-# reads the title from the event payload — no PR code is checked out — so the
-# elevated trigger is safe.
+# writable in the base context, which the pending-status feature needs. The
+# token reads the title from the event payload and writes the commit status,
+# but no PR code is ever checked out or executed — that's what makes the
+# elevated trigger safe.
 name: PR title
 
-permissions:
-  pull-requests: read
-  statuses: write
+# No workflow-level grants: the validate job below declares exactly what it needs.
+permissions: {}
 
 on:
   pull_request_target:
@@ -33,6 +33,9 @@ jobs:
     name: Validate PR title
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: read # read the PR title
+      statuses: write # report the pending status for [WIP] titles
     steps:
       # Types default to the Conventional Commits set, which is exactly what
       # release-plz expects, so we only opt into the [WIP] prefix here.
