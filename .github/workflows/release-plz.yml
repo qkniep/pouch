@@ -1,0 +1,98 @@
+# Automates releases with release-plz (https://release-plz.dev):
+#   * "release-plz-pr" opens/updates a release PR that bumps the version and
+#     updates CHANGELOG.md from the Conventional Commit titles of your
+#     squash-merged PRs (enforced by pr-title.yml).
+#   * "release-plz-release" publishes to crates.io and tags the release ONLY when
+#     that PR is merged. release-plz.toml sets `release_always = false`, so a plain
+#     push to main never publishes — merging the release PR is your deliberate
+#     "publish now" signal, and the first version (0.1.0) is gated like any other.
+#
+# This workflow runs release-plz with the built-in GITHUB_TOKEN — no GitHub App
+# or PAT needed. Repo setup:
+#   * Leave Settings > Actions > General > Workflow permissions read-only; the
+#     per-job permissions: blocks below grant each job the writes it needs.
+#   * Tick "Allow GitHub Actions to create and approve pull requests" — a policy
+#     gate the permissions: block can't grant on its own.
+#   * Add a CARGO_REGISTRY_TOKEN secret (a crates.io API token).
+#
+# Caveat: a release PR opened by GITHUB_TOKEN doesn't trigger CI — GitHub blocks
+# token-created events from starting workflow runs. That's fine without branch
+# protection (the PR only bumps the version and changelog), but if you protect
+# main with required status checks, those checks never run on the release PR, so
+# it can never satisfy the gate and can't be merged. To gate the release PR (or
+# fire a tag-triggered release workflow, which GITHUB_TOKEN also can't), use a
+# GitHub App token or PAT instead — the template's `release_app_token` prompt
+# wires up the App variant for you: https://release-plz.dev/docs/github/token
+#
+# GATED TO PUBLIC REPOS: both jobs carry `if: !github.event.repository.private`.
+# On a private repo release-plz can't authenticate the git operations it runs in
+# its own temporary clones (`git fetch origin main` hits an interactive credential
+# prompt and fails), so it churns the release PR — closing it and opening a new one
+# on every push to main. You also don't publish to crates.io while private. So the
+# jobs stay inert until you make the repo public, then resume on the next push to
+# main — flipping visibility emits a `public` event, not a `push`, so nothing runs
+# at the flip itself. (To run release-plz while private instead, drop the `if`
+# guards and inject the token as a GLOBAL git credential so its temp clones can auth.)
+name: Release-plz
+
+# No workflow-level grants: each job below declares exactly what it needs.
+permissions: {}
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release-plz-release:
+    name: Release-plz release
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.private }} # public repos only — see header
+    permissions:
+      contents: write # push the release tag and create the GitHub release
+    concurrency:
+      group: release-plz-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          cache: false
+      - name: Run release-plz
+        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.private }} # public repos only — see header
+    permissions:
+      contents: write # push the release-pr branch
+      pull-requests: write # open/update the release PR
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          cache: false
+      - name: Run release-plz
+        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
+        with:
+          command: release-pr
+        env:
+          # No CARGO_REGISTRY_TOKEN here: release-pr never publishes, so the
+          # publish secret stays scoped to the release job above.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

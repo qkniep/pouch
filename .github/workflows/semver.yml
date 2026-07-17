@@ -1,0 +1,48 @@
+name: SemVer
+
+# Checks that the crate's public API is SemVer-compliant.
+# Check is gated on the crate actually being published on crates.io already.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: semver-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false # no authenticated git operations after checkout
+
+      - name: Check whether the crate is published
+        id: published
+        run: |
+          name=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+              -A "semver-checks gate (github actions)" \
+              "https://crates.io/api/v1/crates/$name" || true)
+          if [ "$status" = "200" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ "$status" = "404" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name is not published on crates.io yet; skipping SemVer check until the first release."
+          else
+            # Fail closed: only a definitive 404 may skip the check — a rate
+            # limit, outage, or network error must not silently pass the gate.
+            echo "::error::crates.io probe for $name failed (HTTP $status)"
+            exit 1
+          fi
+
+      - name: Check SemVer
+        if: steps.published.outputs.exists == 'true'
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9

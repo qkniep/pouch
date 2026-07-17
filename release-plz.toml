@@ -1,0 +1,11 @@
+# release-plz configuration (https://release-plz.dev/docs/config).
+#
+# `release_always = false` is the safety gate: release-plz publishes ONLY when you
+# merge the release PR it opens, never on a direct push to main. Without it, the
+# first push to main publishes the current version (0.1.0) to crates.io
+# immediately and irreversibly — release-plz releases any version not yet on the
+# registry, and with the default `release_always = true` there is no release PR to
+# gate that first one. Merging the release PR is your deliberate "publish now"
+# signal; it gates 0.1.0 like every later version.
+[workspace]
+release_always = false
