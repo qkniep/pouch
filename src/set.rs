@@ -168,8 +168,9 @@ impl<S: StoreNew> Default for SortedSet<S> {
 }
 
 impl<S: Store> SortedSet<S> {
-    /// Wraps a store **assumed already sorted and free of duplicates** — the invariant
-    /// `binary_search` (and thus [`contains`](Self::contains) /
+    /// Wraps a store **assumed already sorted and free of duplicates**.
+    ///
+    /// That's the invariant `binary_search` (and thus [`contains`](Self::contains) /
     /// [`try_insert`](Self::try_insert) / [`remove`](Self::remove)) relies on.
     ///
     /// No sort is performed; an out-of-order or duplicate-bearing store yields wrong
@@ -192,10 +193,12 @@ impl<S: Store> SortedSet<S> {
         );
         SortedSet { store }
     }
-    /// Borrows the backing store — the door to backend-specific introspection the
-    /// collection API doesn't abstract: `spilled()` on a `SmallVec`,
-    /// [`is_spilled`](crate::Spill::is_spilled) on a [`Spill`](crate::Spill), a backend's
-    /// inherent `capacity()` for *allocated* (not logical) capacity.
+    /// Borrows the backing store.
+    ///
+    /// The door to backend-specific introspection the collection API doesn't abstract:
+    /// `spilled()` on a `SmallVec`, [`is_spilled`](crate::Spill::is_spilled) on a
+    /// [`Spill`](crate::Spill), a backend's inherent `capacity()` for *allocated* (not
+    /// logical) capacity.
     ///
     /// Shared-ref only: `&mut` access could break the sorted-and-deduplicated invariant
     /// that [`from_store`](Self::from_store) trusts.
@@ -215,9 +218,10 @@ impl<S: Store> SortedSet<S> {
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consumes the set and hands back its store, elements intact and still in
-    /// ascending order — the inverse of [`from_store`](Self::from_store), for
-    /// reusing the buffer or handing a sorted `Vec` to an API that wants one.
+    /// Consumes the set and returns its store, elements intact and in ascending order.
+    ///
+    /// The inverse of [`from_store`](Self::from_store) — for reusing the buffer or
+    /// handing a sorted `Vec` to an API that wants one.
     #[must_use]
     pub fn into_store(self) -> S {
         self.store
@@ -334,7 +338,8 @@ impl<S: Store> SortedSet<S> {
         algebra::is_subset(self.as_slice(), other.as_slice())
     }
 
-    /// Returns `true` if every element of `other` is in `self` —
+    /// Returns `true` if every element of `other` is in `self`.
+    ///
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
     #[must_use]
     pub fn is_superset<S2>(&self, other: &SortedSet<S2>) -> bool
@@ -427,8 +432,9 @@ impl<S: StoreMut> SortedSet<S> {
     pub fn clear(&mut self) {
         self.store.clear();
     }
-    /// Pre-allocates so at least `additional` more elements fit without a reallocation —
-    /// pay the growth once up front instead of as spikes mid-burst
+    /// Pre-allocates so at least `additional` more elements fit without a reallocation.
+    ///
+    /// Pay the growth once up front instead of as spikes mid-burst
     /// ([`StoreMut::reserve`]).
     ///
     /// Stores that never reallocate (fixed-capacity, borrowed) have nothing to do; a
@@ -555,8 +561,9 @@ impl<S: StoreMut + StoreNew> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Builds from an arbitrary (unordered) iterator in `O(n log n)`: append every item,
-    /// then sort and drop duplicates once.
+    /// Builds a set from an arbitrary (unordered) iterator.
+    ///
+    /// `O(n log n)`: append every item, then sort and drop duplicates once.
     ///
     /// Beats repeated [`try_insert`](Self::try_insert) — which is `O(n²)`, a shift per
     /// element — for bulk construction.
@@ -578,8 +585,9 @@ where
         Ok(Self::from_store(store))
     }
 
-    /// Builds from an iterator whose items are already in ascending order, in `O(n)` — no
-    /// sort, no shifting, just an append per distinct element.
+    /// Builds a set from an iterator whose items are already in ascending order.
+    ///
+    /// `O(n)` — no sort, no shifting, just an append per distinct element.
     ///
     /// Equal neighbours are dropped, so duplicate runs in the input are fine.
     ///
@@ -621,8 +629,9 @@ impl<S: StoreMut + Unbounded> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Infallibly inserts `value` — available only when the backing store is
-    /// [`Unbounded`].
+    /// Infallibly inserts `value`.
+    ///
+    /// Available only when the backing store is [`Unbounded`].
     ///
     /// # Examples
     ///
@@ -646,9 +655,10 @@ impl<S: StoreMut + StoreNew + Unbounded> SortedSet<S>
 where
     S::Elem: Ord,
 {
-    /// Builds from an ascending iterator — the infallible
-    /// [`try_from_sorted_iter`](Self::try_from_sorted_iter), available only for an
-    /// [`Unbounded`] store. `O(n)`.
+    /// Builds a set from an already-ascending iterator, infallibly.
+    ///
+    /// The infallible [`try_from_sorted_iter`](Self::try_from_sorted_iter), available
+    /// only for an [`Unbounded`] store. `O(n)`.
     ///
     /// # Panics
     ///
@@ -724,8 +734,10 @@ where
     S: StoreMut + Unbounded,
     S::Elem: Ord,
 {
-    /// Appends every item, then sorts and dedups once — `O((n + k) log(n + k))`, faster
-    /// than [`try_extend`](Self::try_extend)'s one-at-a-time shift for a large `k`.
+    /// Appends every item, then sorts and dedups once.
+    ///
+    /// `O((n + k) log(n + k))` — faster than [`try_extend`](Self::try_extend)'s
+    /// one-at-a-time shift for a large `k`.
     ///
     /// Only for [`Unbounded`] stores; bounded ones use `try_extend`.
     fn extend<I: IntoIterator<Item = S::Elem>>(&mut self, iter: I) {
@@ -765,7 +777,9 @@ impl<S: StoreNew> Default for UnsortedSet<S> {
 }
 
 impl<S: Store> UnsortedSet<S> {
-    /// Wraps a store **assumed free of duplicates** — the set invariant.
+    /// Wraps a store **assumed free of duplicates**.
+    ///
+    /// That's the set invariant.
     ///
     /// No scan is performed; duplicates would inflate `len` and let the same value be
     /// removed twice. The precondition is `debug_assert!`-checked (zero cost in release).
@@ -789,7 +803,9 @@ impl<S: Store> UnsortedSet<S> {
         UnsortedSet { store }
     }
     /// Borrows the backing store, for backend-specific introspection (`spilled()`,
-    /// allocated capacity, …) — see [`SortedSet::store`](crate::SortedSet::store).
+    /// allocated capacity, …).
+    ///
+    /// See [`SortedSet::store`](crate::SortedSet::store).
     ///
     /// Shared-ref only: `&mut` access could smuggle in a duplicate, breaking the set
     /// invariant.
@@ -797,8 +813,9 @@ impl<S: Store> UnsortedSet<S> {
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consumes the set and hands back its store, elements intact (in no
-    /// particular order) — the inverse of [`from_store`](Self::from_store).
+    /// Consumes the set and returns its store, elements intact (in no particular order).
+    ///
+    /// The inverse of [`from_store`](Self::from_store).
     #[must_use]
     pub fn into_store(self) -> S {
         self.store
@@ -858,7 +875,8 @@ impl<S: Store> UnsortedSet<S> {
         self.len() <= other.len() && self.iter().all(|x| other.contains(x))
     }
 
-    /// Returns `true` if every element of `other` is in `self` —
+    /// Returns `true` if every element of `other` is in `self`.
+    ///
     /// [`is_subset`](Self::is_subset) with the arguments flipped.
     #[must_use]
     pub fn is_superset<S2>(&self, other: &UnsortedSet<S2>) -> bool
@@ -893,8 +911,9 @@ impl<S: StoreMut> UnsortedSet<S> {
     pub fn clear(&mut self) {
         self.store.clear();
     }
-    /// Pre-allocates so at least `additional` more elements fit without a
-    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    /// Pre-allocates so at least `additional` more elements fit without a reallocation.
+    ///
+    /// See [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.store.reserve(additional);
     }
@@ -1008,8 +1027,9 @@ impl<S: StoreMut + Unbounded> UnsortedSet<S>
 where
     S::Elem: Eq,
 {
-    /// Infallibly inserts `value` — available only when the backing store is
-    /// [`Unbounded`].
+    /// Infallibly inserts `value`.
+    ///
+    /// Available only when the backing store is [`Unbounded`].
     pub fn insert(&mut self, value: S::Elem) -> bool {
         match self.try_insert(value) {
             Ok(b) => b,

@@ -91,8 +91,9 @@ where
         }
     }
 
-    /// Runs `f` on the value if the key is present, then returns the entry — for
-    /// the update half of an update-or-insert chained before `or_insert`.
+    /// Runs `f` on the value if the key is present, then returns the entry.
+    ///
+    /// For the update half of an update-or-insert chained before `or_insert`.
     pub fn and_modify<F: FnOnce(&mut V)>(mut self, f: F) -> Self {
         if let Entry::Occupied(e) = &mut self {
             f(e.get_mut());

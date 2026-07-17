@@ -61,15 +61,17 @@ impl<S: Store> Bag<S> {
     pub fn from_store(store: S) -> Self {
         Bag { store }
     }
-    /// Borrows the backing store, for backend-specific introspection
-    /// (`spilled()`, allocated capacity, …) — see
+    /// Borrows the backing store.
+    ///
+    /// For backend-specific introspection (`spilled()`, allocated capacity, …) — see
     /// [`SortedSet::store`](crate::SortedSet::store).
     #[must_use]
     pub fn store(&self) -> &S {
         &self.store
     }
-    /// Consumes the bag and hands back its store, elements intact and in
-    /// insertion order — the inverse of [`from_store`](Self::from_store).
+    /// Consumes the bag and returns its store, elements intact and in insertion order.
+    ///
+    /// The inverse of [`from_store`](Self::from_store).
     #[must_use]
     pub fn into_store(self) -> S {
         self.store
@@ -118,10 +120,10 @@ impl<S: Store> Bag<S> {
     {
         chunked_contains(self.store.as_slice(), value)
     }
-    /// Returns how many elements equal `value` — the multiset multiplicity. `O(n)`.
+    /// Returns how many elements equal `value`.
     ///
-    /// `value` may be any borrowed form of the element type, like
-    /// [`contains`](Self::contains).
+    /// The multiset multiplicity, `O(n)`. `value` may be any borrowed form of the element
+    /// type, like [`contains`](Self::contains).
     #[must_use]
     pub fn count<Q>(&self, value: &Q) -> usize
     where
@@ -166,8 +168,9 @@ impl<S: StoreMut> Bag<S> {
         self.store.clear();
     }
 
-    /// Pre-allocates so at least `additional` more elements fit without a
-    /// reallocation — see [`SortedSet::reserve`](crate::SortedSet::reserve).
+    /// Pre-allocates so at least `additional` more elements fit without a reallocation.
+    ///
+    /// See [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.store.reserve(additional);
     }
@@ -188,10 +191,11 @@ impl<S: StoreMut> Bag<S> {
         (len > 0).then(|| self.store.remove_at(len - 1))
     }
 
-    /// Removes and returns the element at `i` by swapping the last element into its place
-    /// — `O(1)`, but **does not preserve order**.
+    /// Removes and returns the element at `i` by swapping the last element into its
+    /// place.
     ///
-    /// Prefer this over [`remove`](Self::remove) when order doesn't matter.
+    /// `O(1)`, but **does not preserve order**. Prefer this over [`remove`](Self::remove)
+    /// when order doesn't matter.
     ///
     /// # Panics
     ///
@@ -200,8 +204,9 @@ impl<S: StoreMut> Bag<S> {
         self.store.swap_remove_at(i)
     }
 
-    /// Removes and returns the element at `i`, shifting the tail down to preserve
-    /// order — `O(n)`.
+    /// Removes and returns the element at `i`, shifting the tail down to preserve order.
+    ///
+    /// `O(n)`.
     ///
     /// # Panics
     ///
@@ -246,8 +251,9 @@ impl<S: StoreMut + StoreNew> Bag<S> {
 }
 
 impl<S: StoreMut + Unbounded> Bag<S> {
-    /// Infallibly appends `value` — available only when the backing store is
-    /// [`Unbounded`].
+    /// Infallibly appends `value`.
+    ///
+    /// Available only when the backing store is [`Unbounded`].
     pub fn push(&mut self, value: S::Elem) {
         match self.try_push(value) {
             Ok(()) => {}
@@ -293,10 +299,11 @@ impl<S> FromIterator<S::Elem> for Bag<S>
 where
     S: StoreMut + StoreNew + Unbounded,
 {
-    /// Collects an iterator into a bag — `O(n)`, no dedup, no element bound.
+    /// Collects an iterator into a bag.
     ///
-    /// Unlike the maps (whose duplicate-key policy makes a fallible build), a bag's
-    /// `FromIterator` can't fail on an [`Unbounded`] store.
+    /// `O(n)`, no dedup, no element bound. Unlike the maps (whose duplicate-key policy
+    /// makes a fallible build), a bag's `FromIterator` can't fail on an [`Unbounded`]
+    /// store.
     fn from_iter<I: IntoIterator<Item = S::Elem>>(iter: I) -> Self {
         match Bag::try_from_iter(iter) {
             Ok(bag) => bag,

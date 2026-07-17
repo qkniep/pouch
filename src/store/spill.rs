@@ -147,8 +147,9 @@ impl<A: Store, B: Store> Spill<A, B> {
 }
 
 impl<A: StoreNew, B: Store> Spill<A, B> {
-    /// Builds with a fresh empty inline tier and the given (empty) spill tier — the
-    /// ergonomic constructor for `Spill<SomeStoreNew, ScratchVec<_>>` and friends.
+    /// Builds with a fresh empty inline tier and the given (empty) spill tier.
+    ///
+    /// The ergonomic constructor for `Spill<SomeStoreNew, ScratchVec<_>>` and friends.
     pub fn with_spill(spill: B) -> Self {
         Self::from_tiers(A::new(), spill)
     }

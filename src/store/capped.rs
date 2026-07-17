@@ -67,9 +67,11 @@ where
 
 impl<S> Capped<S> {
     /// Wraps `inner` with a runtime cap, **assuming its current length does not already
-    /// exceed `cap`** — the `len() <= max_capacity()` invariant the rest of the crate
-    /// relies on (e.g. any `max_capacity() - len()` remaining math, which would
-    /// otherwise underflow).
+    /// exceed `cap`**.
+    ///
+    /// This is the `len() <= max_capacity()` invariant the rest of the crate relies on
+    /// (e.g. any `max_capacity() - len()` remaining math, which would otherwise
+    /// underflow).
     ///
     /// The precondition is only `debug_assert!`-checked (zero cost in release), mirroring
     /// the collection-layer `from_store`. To start from an empty store instead, use
@@ -90,8 +92,9 @@ impl<S> Capped<S> {
         Capped { inner, cap }
     }
 
-    /// Returns the runtime cap set at construction — the raw limit, before it is
-    /// intersected with the inner store's own bound.
+    /// Returns the runtime cap set at construction.
+    ///
+    /// The raw limit, before it is intersected with the inner store's own bound.
     pub fn cap(&self) -> usize {
         self.cap
     }
@@ -150,8 +153,9 @@ impl<S: StoreMut> StoreMut for Capped<S> {
     }
 
     /// Forwards to the inner store, clamped to the remaining logical headroom
-    /// (`cap - len`) — space past the cap could never be filled, so reserving
-    /// it would be pure waste.
+    /// (`cap - len`).
+    ///
+    /// Space past the cap could never be filled, so reserving it would be pure waste.
     fn reserve(&mut self, additional: usize) {
         let headroom = self.cap.saturating_sub(self.inner.len());
         self.inner.reserve(additional.min(headroom));
@@ -160,10 +164,10 @@ impl<S: StoreMut> StoreMut for Capped<S> {
 
 // Capped is deliberately NOT `Unbounded`.
 
-/// Consuming iteration delegates to the inner store — the cap only constrains growth, not
-/// reads.
+/// Consuming iteration delegates to the inner store.
 ///
-/// Keeps a `Capped` store eligible for the collections' by-value `IntoIterator`.
+/// The cap only constrains growth, not reads. Keeps a `Capped` store eligible for the
+/// collections' by-value `IntoIterator`.
 impl<S: IntoIterator> IntoIterator for Capped<S> {
     type Item = S::Item;
     type IntoIter = S::IntoIter;
