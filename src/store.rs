@@ -46,10 +46,11 @@ pub trait Store {
         self.as_slice().is_empty()
     }
 
-    /// Returns the logical capacity: the maximum number of elements the store can
-    /// ever hold, or `None` if unbounded (limited only by allocator OOM).
+    /// Returns the logical capacity, or `None` if unbounded.
     ///
-    /// A *bound*, not a spare-room figure — deliberately distinct from the inherent
+    /// That is the maximum number of elements the store can ever hold; `None` means
+    /// bounded only by allocator OOM. A *bound*, not a spare-room figure — deliberately
+    /// distinct from the inherent
     /// `capacity()` on growable backends (`Vec`/`SmallVec`), which reports current
     /// allocation and grows on demand. `Vec`/`SmallVec` report `None` here; fixed-cap
     /// backends (`ArrayVec`, `heapless::Vec`) and `Capped` report `Some`.
@@ -117,8 +118,10 @@ pub trait StoreMut: Store {
     fn clear(&mut self);
 
     /// Pre-allocates so at least `additional` more elements fit **without a
-    /// reallocation** — the tail-latency lever: pay the growth once up front instead of
-    /// as spikes mid-burst.
+    /// reallocation**.
+    ///
+    /// The tail-latency lever: pay the growth once up front instead of as spikes
+    /// mid-burst.
     ///
     /// The promise is about *reallocation*, not logical capacity (that's
     /// [`max_capacity`](Store::max_capacity) / [`CapacityError`]), so the default no-op
@@ -143,8 +146,9 @@ pub trait StoreNew: Store + Sized {
 }
 
 /// Marker: this store never reports a *logical*-capacity failure, so the
-/// collection layer may expose an infallible `insert`. (Allocator OOM still
-/// aborts; that is a separate concern — see crate docs.)
+/// collection layer may expose an infallible `insert`.
+///
+/// (Allocator OOM still aborts; that is a separate concern — see crate docs.)
 ///
 /// Implemented only for genuinely unbounded growable backends. Wrapping any
 /// store in [`Capped`] removes this guarantee by construction.

@@ -49,8 +49,10 @@ use crate::error::{BuildError, CapacityError};
 use crate::set::subrange_indices;
 use crate::store::{Store, StoreMut, StoreNew, Unbounded};
 
-/// A map kept sorted by key, stored **column-wise**: keys in `SK` (sorted), values in
-/// `SV`, kept the same length so `keys[i]` pairs with `values[i]`.
+/// A map kept sorted by key, stored **column-wise**.
+///
+/// Keys in `SK` (sorted), values in `SV`, kept the same length so `keys[i]` pairs with
+/// `values[i]`.
 ///
 /// The struct-of-arrays counterpart of [`SortedMap`](crate::SortedMap) — trades the
 /// `&[(K, V)]` view for a dense key column the binary search strides through without
@@ -105,18 +107,17 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
-    /// Returns the effective logical capacity: the `min` of the two columns' bounds
-    /// (`None` = unbounded).
+    /// Returns the effective logical capacity, or `None` if unbounded.
     ///
-    /// Capping either column caps the map.
+    /// The `min` of the two columns' bounds. Capping either column caps the map.
     #[must_use]
     pub fn max_capacity(&self) -> Option<usize> {
         combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
-    /// Returns the keys as a contiguous slice, in ascending order — the dense search
-    /// target.
+    /// Returns the keys as a contiguous slice, in ascending order.
     ///
-    /// `zip` with [`values`](Self::values) to iterate entries by key.
+    /// The dense search target. `zip` with [`values`](Self::values) to iterate entries by
+    /// key.
     #[must_use]
     pub fn keys(&self) -> &[SK::Elem] {
         self.keys.as_slice()
@@ -127,18 +128,21 @@ impl<SK: Store, SV: Store> SortedColumnMap<SK, SV> {
     pub fn values(&self) -> &[SV::Elem] {
         self.values.as_slice()
     }
-    /// Borrows the two backing stores, `(keys, values)` — the door to backend-specific
-    /// introspection (`spilled()`, allocated capacity, …), as
-    /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store collections.
+    /// Borrows the two backing stores, `(keys, values)`.
+    ///
+    /// The door to backend-specific introspection (`spilled()`, allocated capacity, …),
+    /// as [`SortedSet::store`](crate::SortedSet::store) is for the single-store
+    /// collections.
     ///
     /// Shared-ref only: `&mut` access could desync the columns or unsort the keys.
     #[must_use]
     pub fn stores(&self) -> (&SK, &SV) {
         (&self.keys, &self.values)
     }
-    /// Consumes the map and hands back its stores, `(keys, values)`, entries
-    /// intact, index-aligned, and still in ascending key order — the inverse
-    /// of [`from_store`](Self::from_store).
+    /// Consumes the map and returns its stores, `(keys, values)`, entries intact,
+    /// index-aligned, and still in ascending key order.
+    ///
+    /// The inverse of [`from_store`](Self::from_store).
     #[must_use]
     pub fn into_stores(self) -> (SK, SV) {
         (self.keys, self.values)
@@ -153,9 +157,10 @@ impl<SK: StoreMut, SV: StoreMut> SortedColumnMap<SK, SV> {
         self.keys.clear();
         self.values.clear();
     }
-    /// Pre-allocates both columns so at least `additional` more entries fit
-    /// without a reallocation — see
-    /// [`SortedSet::reserve`](crate::SortedSet::reserve).
+    /// Pre-allocates both columns so at least `additional` more entries fit without a
+    /// reallocation.
+    ///
+    /// See [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.keys.reserve(additional);
         self.values.reserve(additional);
@@ -201,8 +206,10 @@ where
     SV: StoreMut<Elem = V>,
 {
     /// Returns an iterator over the entries as `(&K, &mut V)` pairs, in ascending key
-    /// order — bulk in-place value updates over the dense `&mut [V]` walk SoA vectorizes
-    /// best, without touching the keys.
+    /// order.
+    ///
+    /// Bulk in-place value updates over the dense `&mut [V]` walk SoA vectorizes best,
+    /// without touching the keys.
     #[must_use]
     pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
         ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
@@ -230,14 +237,14 @@ where
     K: Ord,
 {
     /// Wraps two stores **assumed equal-length, with keys sorted ascending and free of
-    /// duplicates** — the sorted-column-map invariants.
+    /// duplicates**.
     ///
-    /// No scan, sort, or alignment is performed; a length mismatch would desync key/value
-    /// pairs and an out-of-order or duplicate-keyed column yields wrong lookups. Both
-    /// preconditions are `debug_assert!`-checked (zero cost in release). For a
-    /// runtime-checked ascending build use
-    /// [`try_from_sorted_iter`](Self::try_from_sorted_iter); to build from arbitrary
-    /// input use [`try_from_iter`](Self::try_from_iter).
+    /// The sorted-column-map invariants. No scan, sort, or alignment is performed; a
+    /// length mismatch would desync key/value pairs and an out-of-order or
+    /// duplicate-keyed column yields wrong lookups. Both preconditions are
+    /// `debug_assert!`-checked (zero cost in release). For a runtime-checked
+    /// ascending build use [`try_from_sorted_iter`](Self::try_from_sorted_iter); to
+    /// build from arbitrary input use [`try_from_iter`](Self::try_from_iter).
     ///
     /// # Panics
     ///
@@ -309,11 +316,12 @@ where
     }
 
     /// Returns the entries whose keys fall within `range`, as `(keys, values)` subslices
-    /// of the two columns — the sorted layout's native range query.
+    /// of the two columns.
     ///
-    /// Two `O(log n)` bound searches over the dense key column resolve one index range,
-    /// which slices both columns; zero copies, and the two returned slices stay
-    /// index-aligned. Unlike [`SortedMap::range`](crate::SortedMap::range), which returns
+    /// The sorted layout's native range query. Two `O(log n)` bound searches over the
+    /// dense key column resolve one index range, which slices both columns; zero copies,
+    /// and the two returned slices stay index-aligned. Unlike
+    /// [`SortedMap::range`](crate::SortedMap::range), which returns
     /// a single `&[(K, V)]`, the column layout hands back the two halves separately.
     /// The bounds may be any borrowed form of `K`, like [`get`](Self::get); as with
     /// `BTreeMap::range`, an **unsized** form (`str`, `[u8]`) needs the explicit
@@ -346,8 +354,9 @@ where
     SV: StoreMut<Elem = V>,
     K: Ord,
 {
-    /// Returns a mutable reference to `key`'s value, or `None` if absent — for an
-    /// in-place update without the [`entry`](Self::entry) ceremony. `O(log n)`.
+    /// Returns a mutable reference to `key`'s value, or `None` if absent.
+    ///
+    /// For an in-place update without the [`entry`](Self::entry) ceremony. `O(log n)`.
     ///
     /// No E0311 lifetime dance (unlike
     /// [`SortedMap::get_mut`](crate::SortedMap::get_mut)): the value column is already
@@ -533,9 +542,10 @@ where
     }
 
     /// Builds from an iterator whose entries are already in ascending key order, in
-    /// `O(n)` — no search, no shifting, just a tail append per entry into both columns.
+    /// `O(n)`.
     ///
-    /// Like [`try_from_iter`](Self::try_from_iter) it requires unique keys, and it
+    /// No search, no shifting, just a tail append per entry into both columns. Like
+    /// [`try_from_iter`](Self::try_from_iter) it requires unique keys, and it
     /// detects a duplicate (or a misordered key) *before* the append, so either is
     /// rejected even at capacity (neither consumes a slot).
     ///
@@ -580,10 +590,10 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Ord,
 {
-    /// Infallibly inserts or replaces, returning the previous value — available only when
-    /// **both** columns are [`Unbounded`].
+    /// Infallibly inserts or replaces, returning the previous value.
     ///
-    /// The infallible twin of [`try_insert`](Self::try_insert).
+    /// Available only when **both** columns are [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.try_insert(key, value) {
             Ok(prev) => prev,
@@ -598,9 +608,10 @@ where
     SV: StoreMut<Elem = V> + StoreNew + Unbounded,
     K: Ord,
 {
-    /// Builds from an ascending iterator — the infallible
-    /// [`try_from_sorted_iter`](Self::try_from_sorted_iter), available only when **both**
-    /// columns are [`Unbounded`]. `O(n)`.
+    /// Builds from an ascending iterator. `O(n)`.
+    ///
+    /// The infallible [`try_from_sorted_iter`](Self::try_from_sorted_iter), available
+    /// only when **both** columns are [`Unbounded`].
     ///
     /// # Panics
     ///
@@ -664,10 +675,10 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Ord,
 {
-    /// Extends the map, last-wins and infallible — available only when **both** columns
-    /// are [`Unbounded`].
+    /// Extends the map, last-wins and infallible.
     ///
-    /// As with [`SortedMap`](crate::SortedMap), there is deliberately no `FromIterator`:
+    /// Available only when **both** columns are [`Unbounded`]. As with
+    /// [`SortedMap`](crate::SortedMap), there is deliberately no `FromIterator`:
     /// fresh construction rejects duplicate keys, while `extend` overrides them.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         match self.try_extend(iter) {

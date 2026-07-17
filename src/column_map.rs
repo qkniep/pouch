@@ -101,13 +101,12 @@ where
         .map(|i| offset + i)
 }
 
-/// Iterator over a column map's entries as `(&K, &V)` pairs — what
-/// [`UnsortedColumnMap::iter`] and
-/// [`SortedColumnMap::iter`](crate::SortedColumnMap::iter) return, and what `&map`
-/// iterates as.
+/// Iterator over a column map's entries as `(&K, &V)` pairs.
 ///
-/// Zips the two dense column slices back into entries; double-ended, exact-size,
-/// and fused, like the slice iterators underneath.
+/// What [`UnsortedColumnMap::iter`] and
+/// [`SortedColumnMap::iter`](crate::SortedColumnMap::iter) return, and what `&map`
+/// iterates as. Zips the two dense column slices back into entries; double-ended,
+/// exact-size, and fused, like the slice iterators underneath.
 // A named struct rather than a bare `Zip<…>` alias, so the returned type is
 // nameable and stable while the two-store representation stays private —
 // mirroring [`MapIter`](crate::MapIter) for the single-store maps.
@@ -186,14 +185,14 @@ impl<K, V> ExactSizeIterator for ColumnIter<'_, K, V> {
 
 impl<K, V> core::iter::FusedIterator for ColumnIter<'_, K, V> {}
 
-/// Iterator over a column map's entries as `(&K, &mut V)` pairs — what
-/// [`UnsortedColumnMap::iter_mut`] and
-/// [`SortedColumnMap::iter_mut`](crate::SortedColumnMap::iter_mut) return.
+/// Iterator over a column map's entries as `(&K, &mut V)` pairs.
 ///
-/// Zips the dense key column against a mutable walk of the value column;
-/// double-ended, exact-size, and fused. Not cloneable — the value borrows are unique;
-/// the key stays shared so map invariants can't be broken through it. Named like
-/// [`ColumnIter`] so the return type is nameable and stable.
+/// What [`UnsortedColumnMap::iter_mut`] and
+/// [`SortedColumnMap::iter_mut`](crate::SortedColumnMap::iter_mut) return. Zips the dense
+/// key column against a mutable walk of the value column; double-ended, exact-size, and
+/// fused. Not cloneable — the value borrows are unique; the key stays shared so map
+/// invariants can't be broken through it. Named like [`ColumnIter`] so the return type is
+/// nameable and stable.
 #[derive(Debug)]
 pub struct ColumnIterMut<'a, K, V> {
     inner: core::iter::Zip<core::slice::Iter<'a, K>, core::slice::IterMut<'a, V>>,
@@ -257,12 +256,12 @@ impl<K, V> ExactSizeIterator for ColumnIterMut<'_, K, V> {
 
 impl<K, V> core::iter::FusedIterator for ColumnIterMut<'_, K, V> {}
 
-/// Mutable iterator over a column map's values — what
-/// [`UnsortedColumnMap::values_mut`] and
-/// [`SortedColumnMap::values_mut`](crate::SortedColumnMap::values_mut) return.
+/// Mutable iterator over a column map's values.
 ///
-/// A thin wrapper over the value column's `&mut [V]` slice iterator (double-ended,
-/// exact-size, fused). Not cloneable — the value borrows are unique.
+/// What [`UnsortedColumnMap::values_mut`] and
+/// [`SortedColumnMap::values_mut`](crate::SortedColumnMap::values_mut) return. A thin
+/// wrapper over the value column's `&mut [V]` slice iterator (double-ended, exact-size,
+/// fused). Not cloneable — the value borrows are unique.
 #[derive(Debug)]
 pub struct ColumnValuesMut<'a, V> {
     inner: core::slice::IterMut<'a, V>,
@@ -361,12 +360,12 @@ pub(crate) fn retain_columns<K, V, SK, SV>(
     }
 }
 
-/// A map with no key ordering, stored **column-wise**: keys in `SK`, values in `SV`, kept
-/// the same length.
+/// A map with no key ordering, stored **column-wise**.
 ///
-/// The struct-of-arrays counterpart of [`UnsortedMap`](crate::UnsortedMap) — trades the
-/// `&[(K, V)]` view for a dense, value-free key scan (faster for large values; see the
-/// module docs). Needs only `K: Eq`.
+/// Keys live in `SK`, values in `SV`, kept the same length. The struct-of-arrays
+/// counterpart of [`UnsortedMap`](crate::UnsortedMap) — trades the `&[(K, V)]` view for a
+/// dense, value-free key scan (faster for large values; see the module docs). Needs only
+/// `K: Eq`.
 ///
 /// Panicking key/value destructors are unsupported: the two columns are mutated in
 /// sequence, so a destructor that unwinds mid-mutation (in [`remove`](Self::remove),
@@ -417,9 +416,9 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
     pub fn max_capacity(&self) -> Option<usize> {
         combined_capacity(self.keys.max_capacity(), self.values.max_capacity())
     }
-    /// Returns the keys as a contiguous slice — the dense scan target.
+    /// Returns the keys as a contiguous slice.
     ///
-    /// `zip` with [`values`](Self::values) to iterate entries.
+    /// The dense scan target. `zip` with [`values`](Self::values) to iterate entries.
     #[must_use]
     pub fn keys(&self) -> &[SK::Elem] {
         self.keys.as_slice()
@@ -433,19 +432,20 @@ impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
 }
 
 impl<SK: Store, SV: Store> UnsortedColumnMap<SK, SV> {
-    /// Borrows the two backing stores, `(keys, values)` — the door to backend-specific
-    /// introspection (`spilled()`, allocated capacity, …), as
-    /// [`SortedSet::store`](crate::SortedSet::store) is for the single-store collections.
+    /// Borrows the two backing stores, `(keys, values)`.
     ///
-    /// Shared-ref only: `&mut` access could desync the columns or smuggle in a duplicate
-    /// key.
+    /// The door to backend-specific introspection (`spilled()`, allocated capacity, …),
+    /// as [`SortedSet::store`](crate::SortedSet::store) is for the single-store
+    /// collections. Shared-ref only: `&mut` access could desync the columns or
+    /// smuggle in a duplicate key.
     #[must_use]
     pub fn stores(&self) -> (&SK, &SV) {
         (&self.keys, &self.values)
     }
-    /// Consumes the map and hands back its stores, `(keys, values)`, entries
-    /// intact and index-aligned — the inverse of
-    /// [`from_store`](Self::from_store).
+    /// Consumes the map and returns its stores, `(keys, values)`, entries intact and
+    /// index-aligned.
+    ///
+    /// The inverse of [`from_store`](Self::from_store).
     #[must_use]
     pub fn into_stores(self) -> (SK, SV) {
         (self.keys, self.values)
@@ -460,9 +460,10 @@ impl<SK: StoreMut, SV: StoreMut> UnsortedColumnMap<SK, SV> {
         self.keys.clear();
         self.values.clear();
     }
-    /// Pre-allocates both columns so at least `additional` more entries fit
-    /// without a reallocation — see
-    /// [`SortedSet::reserve`](crate::SortedSet::reserve).
+    /// Pre-allocates both columns so at least `additional` more entries fit without a
+    /// reallocation.
+    ///
+    /// See [`SortedSet::reserve`](crate::SortedSet::reserve).
     pub fn reserve(&mut self, additional: usize) {
         self.keys.reserve(additional);
         self.values.reserve(additional);
@@ -493,8 +494,9 @@ where
     SK: StoreMut<Elem = K>,
     SV: StoreMut<Elem = V>,
 {
-    /// Returns an iterator over the entries as `(&K, &mut V)` pairs — bulk in-place value
-    /// updates, the dense `&mut [V]` walk SoA vectorizes best.
+    /// Returns an iterator over the entries as `(&K, &mut V)` pairs.
+    ///
+    /// Bulk in-place value updates, the dense `&mut [V]` walk SoA vectorizes best.
     #[must_use]
     pub fn iter_mut(&mut self) -> ColumnIterMut<'_, K, V> {
         ColumnIterMut::new(self.keys.as_slice(), self.values.as_mut_slice())
@@ -521,11 +523,11 @@ where
     SV: Store<Elem = V>,
     K: Eq,
 {
-    /// Wraps two stores **assumed equal-length and free of duplicate keys** — the
-    /// column-map invariants.
+    /// Wraps two stores **assumed equal-length and free of duplicate keys**.
     ///
-    /// No scan or alignment is performed; a length mismatch would desync key/value pairs
-    /// and a duplicate key would shadow itself. Both preconditions are
+    /// The column-map invariants. No scan or alignment is performed; a length mismatch
+    /// would desync key/value pairs and a duplicate key would shadow itself. Both
+    /// preconditions are
     /// `debug_assert!`-checked (zero cost in release). To build from an arbitrary
     /// iterator, use [`try_from_iter`](Self::try_from_iter).
     ///
@@ -608,10 +610,10 @@ where
     SV: StoreMut<Elem = V>,
     K: Eq,
 {
-    /// Returns a mutable reference to `key`'s value, or `None` if absent — for an
-    /// in-place update without the [`entry`](Self::entry) ceremony.
+    /// Returns a mutable reference to `key`'s value, or `None` if absent.
     ///
-    /// No E0311 lifetime dance (unlike
+    /// For an in-place update without the [`entry`](Self::entry) ceremony. No E0311
+    /// lifetime dance (unlike
     /// [`UnsortedMap::get_mut`](crate::UnsortedMap::get_mut)): the value column is
     /// already `&mut [V]`, so elision ties the result to `&mut self`. `key` may be any
     /// borrowed form of `K`, like [`get`](Self::get).
@@ -771,10 +773,10 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Eq,
 {
-    /// Infallibly inserts or replaces, returning the previous value — available only when
-    /// **both** columns are [`Unbounded`].
+    /// Infallibly inserts or replaces, returning the previous value.
     ///
-    /// The infallible twin of [`try_insert`](Self::try_insert).
+    /// Available only when **both** columns are [`Unbounded`]. The infallible twin of
+    /// [`try_insert`](Self::try_insert).
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         match self.try_insert(key, value) {
             Ok(prev) => prev,
@@ -821,10 +823,10 @@ where
     SV: StoreMut<Elem = V> + Unbounded,
     K: Eq,
 {
-    /// Extends the map, last-wins and infallible — available only when **both** columns
-    /// are [`Unbounded`].
+    /// Extends the map, last-wins and infallible.
     ///
-    /// As with [`UnsortedMap`](crate::UnsortedMap), there is deliberately no
+    /// Available only when **both** columns are [`Unbounded`]. As with
+    /// [`UnsortedMap`](crate::UnsortedMap), there is deliberately no
     /// `FromIterator`: fresh construction rejects duplicate keys, while `extend`
     /// overrides them.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
