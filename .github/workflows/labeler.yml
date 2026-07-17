@@ -15,10 +15,13 @@ on:
     paths: [".github/labels.yml"]
   workflow_dispatch:
 
-# Serialize runs: syncing deletes labels missing from labels.yml, so an
-# overlapping older run finishing last could reapply a stale set.
+# Serialize every mutating run against the repo-wide label set, which is a
+# single global resource. A ref-scoped group would let a workflow_dispatch from
+# a feature branch race a push to main (both apply changes — dry-run is only on
+# for pull_request), so the group is a fixed string, not keyed on github.ref.
+# cancel-in-progress stays false: queue runs rather than interrupt a sync.
 concurrency:
-  group: labeler-${{ github.ref }}
+  group: labeler
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +40,8 @@ jobs:
         uses: crazy-max/ghaction-github-labeler@548a7c3603594ec17c819e1239f281a3b801ab4d # v6.0.0
         with:
           yaml-file: .github/labels.yml
-          # PRs preview changes in the logs without applying; pushes to main
-          # apply the set, deleting any labels not listed above.
-          dry-run: ${{ github.event_name == 'pull_request' }}
+          # Only real syncs from main apply the set (deleting any labels not
+          # listed above); PRs and manual dispatches from other branches stay a
+          # dry-run preview in the logs, so a stray branch can't rewrite labels.
+          dry-run: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/main' }}
           # Set "skip-delete: true" to sync add-only, without pruning.

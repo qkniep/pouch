@@ -49,6 +49,7 @@ jobs:
     if: ${{ !github.event.repository.private }} # public repos only — see header
     permissions:
       contents: write # push the release tag and create the GitHub release
+      pull-requests: read # with release_always = false, detect the merged release PR to release from
     concurrency:
       group: release-plz-release-${{ github.ref }}
       cancel-in-progress: false

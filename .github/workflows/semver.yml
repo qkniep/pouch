@@ -27,7 +27,15 @@ jobs:
       - name: Check whether the crate is published
         id: published
         run: |
+          # pipefail: a bare `run:` step is `bash -e`, NOT `-o pipefail`, so a
+          # failed `cargo metadata` would be masked by jq's exit 0 on empty input,
+          # leaving name empty and letting the crates.io probe skip the check.
+          set -o pipefail
           name=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          if [ -z "$name" ] || [ "$name" = "null" ]; then
+            echo "::error::could not read crate name from cargo metadata"
+            exit 1
+          fi
           status=$(curl -s -o /dev/null -w '%{http_code}' \
               -A "semver-checks gate (github actions)" \
               "https://crates.io/api/v1/crates/$name" || true)
