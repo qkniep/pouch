@@ -68,7 +68,7 @@ serde    = { version = "1", default-features = false, optional = true }
 divan = "0.1"
 serde_test = "1"
 litemap = "0.8"
-vecmap-rs = "0.2"
+vecmap-rs = "0.3"
 sorted-vec = "0.8"
 rustc-hash = "2"
 micromap = "0.3"
