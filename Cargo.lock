@@ -621,9 +621,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "vecmap-rs"
-version = "0.2.5"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58c1dc449b873236909c7f325adf395071c209047737d831183e95c692413adf"
+checksum = "a65231726fc2f0da522df4b4f3373793a7c6d96a2903728531bdf38aec1b9f56"
 
 [[package]]
 name = "wait-timeout"
